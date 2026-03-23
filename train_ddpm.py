@@ -92,7 +92,7 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
     ax.legend()
     plt.tight_layout()
     if save_to_gcs and len(train_losses) > 0:
-        save_plot_to_gcs(fig, f'loss_epoch_{epoch:04d}.png')
+        save_plot_to_gcs(fig, 'loss_curve.png')
     plt.close(fig)
 
 
