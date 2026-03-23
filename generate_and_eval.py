@@ -6,6 +6,7 @@ Usage:
   python generate_and_eval.py --no_gcs --skip_generation
 """
 import argparse
+import functools
 import json
 import io
 import pickle
@@ -59,9 +60,39 @@ def load_params(ckpt_path, model):
     return params, epoch, train_losses, val_losses
 
 
+# ── JIT'd single denoise step ────────────────────────────────────────────
+
+def make_denoise_step(model):
+    """Create a JIT-compiled single denoising step.
+
+    Compiles once, then every subsequent call is fast.
+    """
+    @jax.jit
+    def _denoise_step(params, x_t, t_batch, alpha, alpha_bar, beta, key):
+        eps_pred = model.apply({'params': params}, x_t, t_batch, train=False)
+
+        # All samples in the batch share the same t, so index with t_batch[0]
+        t_val = t_batch[0]
+        alpha_t = alpha[t_val]
+        alpha_bar_t = alpha_bar[t_val]
+        beta_t = beta[t_val]
+
+        coef1 = 1.0 / jnp.sqrt(alpha_t)
+        coef2 = beta_t / jnp.sqrt(1.0 - alpha_bar_t)
+        mean = coef1 * (x_t - coef2 * eps_pred)
+
+        z = jax.random.normal(key, x_t.shape)
+        sigma = jnp.sqrt(beta_t)
+        # If t > 0 add noise, else just return mean
+        x_next = jnp.where(t_val > 0, mean + sigma * z, mean)
+        return x_next
+
+    return _denoise_step
+
+
 # ── Reverse diffusion (sampling) ──────────────────────────────────────────
 
-def ddpm_sample(model, params, shape, T, beta_schedule, key):
+def ddpm_sample(denoise_step, params, shape, T, beta_schedule, key):
     """Algorithm 2: Sampling. x_T ~ N(0,I), denoise to x_0."""
     alpha = 1 - beta_schedule
     alpha_bar = jnp.cumprod(alpha)
@@ -70,29 +101,16 @@ def ddpm_sample(model, params, shape, T, beta_schedule, key):
     x_t = jax.random.normal(subkey, shape)
 
     for t_val in tqdm(range(T - 1, -1, -1), desc="Sampling"):
-        t = jnp.full((shape[0],), t_val, dtype=jnp.int32)
-        eps_pred = model.apply({'params': params}, x_t, t, train=False)
-
-        alpha_t = alpha[t_val]
-        alpha_bar_t = alpha_bar[t_val]
-        beta_t = beta_schedule[t_val]
-
-        coef1 = 1.0 / jnp.sqrt(alpha_t)
-        coef2 = beta_t / jnp.sqrt(1.0 - alpha_bar_t)
-        mean = coef1 * (x_t - coef2 * eps_pred)
-
-        if t_val > 0:
-            key, subkey = jax.random.split(key)
-            z = jax.random.normal(subkey, shape)
-            sigma = jnp.sqrt(beta_t)
-            x_t = mean + sigma * z
-        else:
-            x_t = mean
+        t_batch = jnp.full((shape[0],), t_val, dtype=jnp.int32)
+        key, subkey = jax.random.split(key)
+        x_t = denoise_step(params, x_t, t_batch, alpha, alpha_bar,
+                           beta_schedule, subkey)
 
     return x_t
 
 
-def reconstruct(model, params, x_0, t_noise, beta_schedule, key):
+def reconstruct(denoise_step, params, x_0, t_noise, beta_schedule, key,
+                show_progress=True):
     """Noise x_0 to timestep t_noise, then denoise back to x_0."""
     alpha = 1 - beta_schedule
     alpha_bar = jnp.cumprod(alpha)
@@ -102,25 +120,15 @@ def reconstruct(model, params, x_0, t_noise, beta_schedule, key):
     t = jnp.full((x_0.shape[0],), t_noise, dtype=jnp.int32)
     x_t = forward_process(x_0, t, alpha_bar, eps)
 
-    for t_val in range(t_noise, -1, -1):
+    iterator = range(t_noise, -1, -1)
+    if show_progress:
+        iterator = tqdm(iterator, desc=f"Denoise t={t_noise}", leave=False)
+
+    for t_val in iterator:
         t_batch = jnp.full((x_0.shape[0],), t_val, dtype=jnp.int32)
-        eps_pred = model.apply({'params': params}, x_t, t_batch, train=False)
-
-        alpha_t = alpha[t_val]
-        alpha_bar_t = alpha_bar[t_val]
-        beta_t = beta_schedule[t_val]
-
-        coef1 = 1.0 / jnp.sqrt(alpha_t)
-        coef2 = beta_t / jnp.sqrt(1.0 - alpha_bar_t)
-        mean = coef1 * (x_t - coef2 * eps_pred)
-
-        if t_val > 0:
-            key, subkey = jax.random.split(key)
-            z = jax.random.normal(subkey, x_t.shape)
-            sigma = jnp.sqrt(beta_t)
-            x_t = mean + sigma * z
-        else:
-            x_t = mean
+        key, subkey = jax.random.split(key)
+        x_t = denoise_step(params, x_t, t_batch, alpha, alpha_bar,
+                           beta_schedule, subkey)
 
     return x_t
 
@@ -131,6 +139,13 @@ def compute_test_loss(model, params, test_samples, T, beta_schedule, key,
                       batch_size=8):
     """Compute noise-prediction MSE over the full test set (random t per sample)."""
     alpha_bar = jnp.cumprod(1 - beta_schedule)
+
+    @jax.jit
+    def _eval_batch(params, batch, t, eps):
+        noised = forward_process(batch, t, alpha_bar, eps)
+        eps_pred = model.apply({'params': params}, noised, t, train=False)
+        return jnp.mean((eps - eps_pred) ** 2)
+
     losses = []
     n = len(test_samples)
 
@@ -140,9 +155,7 @@ def compute_test_loss(model, params, test_samples, T, beta_schedule, key,
         key, k_t, k_eps = jax.random.split(key, 3)
         t = jax.random.randint(k_t, (bs,), 0, T)
         eps = jax.random.normal(k_eps, batch.shape)
-        noised = forward_process(batch, t, alpha_bar, eps)
-        eps_pred = model.apply({'params': params}, noised, t, train=False)
-        loss = float(jnp.mean((eps - eps_pred) ** 2))
+        loss = float(_eval_batch(params, batch, t, eps))
         losses.append(loss)
 
     return float(np.mean(losses)), float(np.std(losses))
@@ -150,10 +163,10 @@ def compute_test_loss(model, params, test_samples, T, beta_schedule, key,
 
 # ── Visualization ─────────────────────────────────────────────────────────
 
-def plot_reconstruction_grid(model, params, samples, sample_indices,
+def plot_reconstruction_grid(denoise_step, params, samples, sample_indices,
                              t_values, beta_schedule, mean, std, key,
                              save_gcs=True):
-    """Grid: rows = 5 test samples, cols = [Original, t1, t2, ...].
+    """Grid: rows = test samples, cols = [Original, t1, t2, ...].
 
     Each cell shows the reconstructed image; the original column is first.
     MSE is annotated on each reconstructed cell.
@@ -186,8 +199,9 @@ def plot_reconstruction_grid(model, params, samples, sample_indices,
 
         sample_row_metrics = {}
         for col, t_noise in enumerate(t_values):
+            print(f"  Sample {row+1}/{n_samples}, t={t_noise}")
             key, k_recon = jax.random.split(key)
-            recon = reconstruct(model, params, x_0, t_noise,
+            recon = reconstruct(denoise_step, params, x_0, t_noise,
                                 beta_schedule, k_recon)
             recon_img = np.array(recon[0]) * std + mean
             mse = float(jnp.mean((x_0[0] - recon[0]) ** 2))
@@ -206,7 +220,7 @@ def plot_reconstruction_grid(model, params, samples, sample_indices,
         per_sample_metrics.append({"sample_idx": int(idx),
                                    "metrics": sample_row_metrics})
 
-    fig.suptitle('Reconstruction from different noise levels (5 test samples)',
+    fig.suptitle('Reconstruction from different noise levels',
                  fontsize=14, y=1.01)
     plt.tight_layout()
 
@@ -317,8 +331,19 @@ def main():
 
     params, epoch, train_losses, val_losses = load_params(args.ckpt, model)
 
+    # ── Create JIT'd denoise step (compiled once, reused everywhere) ──
+    denoise_step = make_denoise_step(model)
+    print("Warming up JIT (first denoise call)...")
+    _warmup_x = jnp.ones((1, 256, 256, 3))
+    _warmup_t = jnp.ones((1,), dtype=jnp.int32)
+    _warmup_key = jax.random.PRNGKey(0)
+    _alpha = 1 - beta_schedule
+    _alpha_bar = jnp.cumprod(_alpha)
+    _ = denoise_step(params, _warmup_x, _warmup_t, _alpha, _alpha_bar,
+                     beta_schedule, _warmup_key)
+    print("JIT warmup done.")
+
     # ── Load data with SAME split as training (seed=1, 70/10/20) ──
-    # Use load_and_split to guarantee identical train/val/test partition
     num_devices = len(jax.devices())
     train_samples, val_samples, test_samples, mean, std, _ = load_and_split(
         batch_size=8, num_devices=num_devices)
@@ -359,7 +384,7 @@ def main():
 
     key, subkey = jax.random.split(key)
     grid_metrics = plot_reconstruction_grid(
-        model, params, test_samples, grid_indices, args.t_noise,
+        denoise_step, params, test_samples, grid_indices, args.t_noise,
         beta_schedule, mean, std, subkey, save_gcs=not args.no_gcs)
     report["grid_sample_metrics"] = grid_metrics
 
@@ -379,12 +404,12 @@ def main():
 
     plot_metrics_summary(recon_metrics, save_gcs=not args.no_gcs)
 
-    # ── 4. Generate from pure noise ──
+    # ── 3. Generate from pure noise ──
     if not args.skip_generation:
         print(f"\n=== Generation ({args.n_gen} samples) ===")
         key, subkey = jax.random.split(key)
         generated = ddpm_sample(
-            model, params, (args.n_gen, 256, 256, 3),
+            denoise_step, params, (args.n_gen, 256, 256, 3),
             T, beta_schedule, subkey)
         plot_generated_samples(generated, mean, std, save_gcs=not args.no_gcs)
         report["n_generated"] = args.n_gen
@@ -408,7 +433,7 @@ def main():
         print(f"Final train loss:   {train_losses[-1]:.6f}")
     if val_losses:
         print(f"Final val loss:     {val_losses[-1]:.6f}")
-    print(f"\nReconstruction (test set, {len(test_samples)} samples):")
+    print(f"\nReconstruction ({n_grid} samples):")
     print(f"  {'t':>6s}  {'MSE':>12s}  {'MAE':>12s}")
     print(f"  {'---':>6s}  {'---':>12s}  {'---':>12s}")
     for t_noise in sorted(recon_metrics.keys()):
