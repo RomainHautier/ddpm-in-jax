@@ -456,4 +456,16 @@ def train(n_epochs=300, batch_size=32, lr=2e-4, T=1000, dropout_p=0.1,
 
 
 if __name__ == "__main__":
-    params, train_losses, val_losses = train()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume', action='store_true', default=False,
+                        help='Resume from latest checkpoint')
+    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--lr', type=float, default=2e-4)
+    parser.add_argument('--ckpt_every', type=int, default=10)
+    args = parser.parse_args()
+
+    params, train_losses, val_losses = train(
+        n_epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+        ckpt_every=args.ckpt_every, resume=args.resume)
