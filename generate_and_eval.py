@@ -361,8 +361,8 @@ def main():
         "T": T,
         "t_noise_levels": args.t_noise,
         "n_test_samples": len(test_samples),
-        "mean": mean,
-        "std": std,
+        "mean": float(mean),
+        "std": float(std),
     }
 
     # ── 1. Test loss (noise prediction MSE, random t over full test set) ──
