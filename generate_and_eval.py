@@ -148,47 +148,6 @@ def compute_test_loss(model, params, test_samples, T, beta_schedule, key,
     return float(np.mean(losses)), float(np.std(losses))
 
 
-# ── Reconstruction metrics over test set ─────────────────────────────────
-
-def compute_reconstruction_metrics(model, params, test_samples, t_values,
-                                   beta_schedule, key, batch_size=4):
-    """Compute per-sample MSE and MAE for each noise level over the full test set.
-
-    Returns dict: {t: {"mse_mean", "mse_std", "mae_mean", "mae_std", "n_samples"}}
-    """
-    results = {}
-    n = len(test_samples)
-
-    for t_noise in t_values:
-        mses, maes = [], []
-        for i in tqdm(range(0, n, batch_size),
-                      desc=f"Recon t={t_noise}", leave=False):
-            batch = jnp.array(test_samples[i:i + batch_size])
-            key, k_recon = jax.random.split(key)
-            recon = reconstruct(model, params, batch, t_noise,
-                                beta_schedule, k_recon)
-            # per-sample metrics
-            for j in range(batch.shape[0]):
-                mse = float(jnp.mean((batch[j] - recon[j]) ** 2))
-                mae = float(jnp.mean(jnp.abs(batch[j] - recon[j])))
-                mses.append(mse)
-                maes.append(mae)
-
-        results[int(t_noise)] = {
-            "mse_mean": float(np.mean(mses)),
-            "mse_std": float(np.std(mses)),
-            "mae_mean": float(np.mean(maes)),
-            "mae_std": float(np.std(maes)),
-            "n_samples": len(mses),
-        }
-        print(f"  t={t_noise:4d}: MSE={results[int(t_noise)]['mse_mean']:.6f} "
-              f"+/- {results[int(t_noise)]['mse_std']:.6f}  "
-              f"MAE={results[int(t_noise)]['mae_mean']:.6f} "
-              f"+/- {results[int(t_noise)]['mae_std']:.6f}")
-
-    return results
-
-
 # ── Visualization ─────────────────────────────────────────────────────────
 
 def plot_reconstruction_grid(model, params, samples, sample_indices,
@@ -390,16 +349,7 @@ def main():
     report["test_noise_mse_mean"] = test_mean
     report["test_noise_mse_std"] = test_std
 
-    # ── 2. Reconstruction metrics over the full test set per noise level ──
-    print("\n=== Reconstruction Metrics (full test set) ===")
-    key, subkey = jax.random.split(key)
-    recon_metrics = compute_reconstruction_metrics(
-        model, params, test_samples, args.t_noise, beta_schedule, subkey)
-    report["reconstruction_metrics"] = recon_metrics
-
-    plot_metrics_summary(recon_metrics, save_gcs=not args.no_gcs)
-
-    # ── 3. Reconstruction grid (5 random test samples) ──
+    # ── 2. Reconstruction grid + metrics (5 random test samples) ──
     print("\n=== Reconstruction Grid ===")
     key, subkey = jax.random.split(key)
     n_grid = min(args.n_grid_samples, len(test_samples))
@@ -412,6 +362,22 @@ def main():
         model, params, test_samples, grid_indices, args.t_noise,
         beta_schedule, mean, std, subkey, save_gcs=not args.no_gcs)
     report["grid_sample_metrics"] = grid_metrics
+
+    # Aggregate reconstruction metrics from the grid samples
+    recon_metrics = {}
+    for t_noise in args.t_noise:
+        mses = [s["metrics"][t_noise]["mse"] for s in grid_metrics]
+        maes = [s["metrics"][t_noise]["mae"] for s in grid_metrics]
+        recon_metrics[int(t_noise)] = {
+            "mse_mean": float(np.mean(mses)),
+            "mse_std": float(np.std(mses)),
+            "mae_mean": float(np.mean(maes)),
+            "mae_std": float(np.std(maes)),
+            "n_samples": len(mses),
+        }
+    report["reconstruction_metrics"] = recon_metrics
+
+    plot_metrics_summary(recon_metrics, save_gcs=not args.no_gcs)
 
     # ── 4. Generate from pure noise ──
     if not args.skip_generation:
