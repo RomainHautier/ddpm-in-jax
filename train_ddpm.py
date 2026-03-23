@@ -274,14 +274,15 @@ def build_samples(data, idx_list, mean, std):
 def load_and_split(batch_size, num_devices, train_ratio=0.7):
     """Load dataset from GCS, split into train/val/test numpy arrays."""
     data = load_npy_from_gcs(DATA_PATH)
-    data = data[:8, :50, :, :]
 
     np.random.seed(1)
     indices = np.arange(data.shape[0])
     np.random.shuffle(indices)
 
-    n_train = int(train_ratio * len(indices))
-    n_val   = int(0.1 * len(indices))
+    n = len(indices)
+    n_val   = max(1, int(0.1 * n))
+    n_test  = max(1, int(0.2 * n))
+    n_train = n - n_val - n_test
 
     train_idx = indices[:n_train]
     val_idx   = indices[n_train:n_train + n_val]
