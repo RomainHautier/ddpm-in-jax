@@ -1,0 +1,22 @@
+# Data and outputs
+checkpoints/
+flow-data/
+monitoring/
+
+# Large binary files
+*.pkl
+*.npy
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# OS
+.DS_Store
