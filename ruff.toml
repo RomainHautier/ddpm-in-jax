@@ -1,0 +1,12 @@
+line-length = 100
+include = ["src/**/*.py"]
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — handled by formatter, not linter
+    "F401",  # unused imports — common in ML notebooks/scripts during dev
+]
+
+[lint.per-file-ignores]
+"src/models/*.py" = ["E741"]  # allow short variable names (l, O, I) in model code

@@ -1,8 +1,9 @@
+import functools
+
 import jax
 import jax.numpy as jnp
-from flax import linen as nn
 import numpy as np
-import functools
+from flax import linen as nn
 
 
 def sinusoidal_time_embedding(t, dim, max_period=10000):
@@ -21,15 +22,15 @@ class DDPMResnet(nn.Module):
         residual = x
         h = nn.GroupNorm(8)(x)
         h = jax.nn.silu(h)
-        h = nn.Conv(features=self.filters, kernel_size=(3, 3), padding='CIRCULAR')(h)
+        h = nn.Conv(features=self.filters, kernel_size=(3, 3), padding="CIRCULAR")(h)
         t = nn.Dense(self.filters)(jax.nn.silu(time_embed))
         h = h + t[:, None, None, :]
         h = nn.GroupNorm(8)(h)
         h = jax.nn.silu(h)
         h_dropout = nn.Dropout(rate=self.dropout_p)(h, deterministic=not train)
-        h = nn.Conv(features=self.filters, kernel_size=(3, 3), padding='CIRCULAR')(h_dropout)
+        h = nn.Conv(features=self.filters, kernel_size=(3, 3), padding="CIRCULAR")(h_dropout)
         if x.shape[-1] != self.filters:
-            residual = nn.Conv(self.filters, (1, 1), padding='CIRCULAR')(residual)
+            residual = nn.Conv(self.filters, (1, 1), padding="CIRCULAR")(residual)
         return h + residual
 
 
@@ -69,76 +70,103 @@ class Unet(nn.Module):
         time_embed = nn.Dense(temp_ch)(time_embed)
         time_embed = jax.nn.silu(time_embed)
         time_embed = nn.Dense(temp_ch)(time_embed)
-        h = nn.Conv(ch, kernel_size=(3, 3), padding='CIRCULAR')(x)
+        h = nn.Conv(ch, kernel_size=(3, 3), padding="CIRCULAR")(x)
         hs = [h]
         for _ in range(self.n_resnet_blocks):
-            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(h, time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
             hs.append(h)
-        h = nn.Conv(ch * self.ch_mult[0], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1)))(h)
+        h = nn.Conv(
+            ch * self.ch_mult[0], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
         hs.append(h)
         for _ in range(self.n_resnet_blocks):
-            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(h, time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
             hs.append(h)
-        h = nn.Conv(ch * self.ch_mult[1], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1)))(h)
+        h = nn.Conv(
+            ch * self.ch_mult[1], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
         hs.append(h)
         for _ in range(self.n_resnet_blocks):
-            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(h, time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
             hs.append(h)
-        h = nn.Conv(ch * self.ch_mult[2], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1)))(h)
+        h = nn.Conv(
+            ch * self.ch_mult[2], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
         hs.append(h)
         for _ in range(self.n_resnet_blocks):
-            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(h, time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
             hs.append(h)
         h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
         h = SelfAttention(num_groups=8)(h)
         h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
         for _ in range(self.n_resnet_blocks + 1):
-            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
         B, H, W, C = h.shape
-        h = jax.image.resize(h, (B, H * 2, W * 2, C), method='nearest')
-        h = nn.Conv(ch * self.ch_mult[3], kernel_size=(3, 3), padding='CIRCULAR')(h)
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[3], kernel_size=(3, 3), padding="CIRCULAR")(h)
         for _ in range(self.n_resnet_blocks + 1):
-            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
         B, H, W, C = h.shape
-        h = jax.image.resize(h, (B, H * 2, W * 2, C), method='nearest')
-        h = nn.Conv(ch * self.ch_mult[2], kernel_size=(3, 3), padding='CIRCULAR')(h)
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[2], kernel_size=(3, 3), padding="CIRCULAR")(h)
         for _ in range(self.n_resnet_blocks + 1):
-            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
         B, H, W, C = h.shape
-        h = jax.image.resize(h, (B, H * 2, W * 2, C), method='nearest')
-        h = nn.Conv(ch * self.ch_mult[1], kernel_size=(3, 3), padding='CIRCULAR')(h)
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[1], kernel_size=(3, 3), padding="CIRCULAR")(h)
         for _ in range(self.n_resnet_blocks + 1):
-            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train)
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
         h = nn.GroupNorm(8)(h)
         h = jax.nn.silu(h)
-        return nn.Conv(self.out_ch, kernel_size=(3, 3), padding='CIRCULAR')(h)
+        return nn.Conv(self.out_ch, kernel_size=(3, 3), padding="CIRCULAR")(h)
 
 
 class DDPM:
     def __init__(self, config: dict):
         self.config = config
 
-        diffusion = config['diffusion']
-        self.beta_schedule = jnp.linspace(diffusion['beta_start'], diffusion['beta_end'], diffusion['T'])
+        diffusion = config["diffusion"]
+        self.beta_schedule = jnp.linspace(
+            diffusion["beta_start"], diffusion["beta_end"], diffusion["T"]
+        )
         self.alpha_bar = jnp.cumprod(1 - self.beta_schedule)
 
-        model_cfg = config['model']
+        model_cfg = config["model"]
         self.unet = Unet(
-            ch=model_cfg['ch'],
-            ch_mult=tuple(model_cfg['ch_mult']),
-            out_ch=model_cfg['out_ch'],
-            in_ch=model_cfg['in_ch'],
-            n_resnet_blocks=model_cfg['n_resnet_blocks'],
-            dropout_p=model_cfg['dropout_p'],
-            freq_dim=model_cfg['freq_dim'],
+            ch=model_cfg["ch"],
+            ch_mult=tuple(model_cfg["ch_mult"]),
+            out_ch=model_cfg["out_ch"],
+            in_ch=model_cfg["in_ch"],
+            n_resnet_blocks=model_cfg["n_resnet_blocks"],
+            dropout_p=model_cfg["dropout_p"],
+            freq_dim=model_cfg["freq_dim"],
         )
 
     def forward_process(self, ims, t, eps):
         alpha = self.alpha_bar
-        return jnp.sqrt(alpha[t])[:, None, None, None] * ims + jnp.sqrt(1 - alpha[t])[:, None, None, None] * eps
+        return (
+            jnp.sqrt(alpha[t])[:, None, None, None] * ims
+            + jnp.sqrt(1 - alpha[t])[:, None, None, None] * eps
+        )
 
     def sample(self, params, dims, key):
-        T = self.config['diffusion']['T']
+        T = self.config["diffusion"]["T"]
         alpha_bar = self.alpha_bar
         beta_schedule = self.beta_schedule
         model = self.unet
@@ -147,9 +175,11 @@ class DDPM:
         xT = jax.random.normal(keys[0], dims)
         for t in range(T, 0, -1):
             z = jax.random.normal(keys[t], xT.shape) if t > 1 else 0
-            eps_pred = model.apply({'params': params}, xT, t, train=False)
+            eps_pred = model.apply({"params": params}, xT, t, train=False)
             alpha_bar_t = alpha_bar[t]
             alpha_t = 1 - beta_schedule[t]
-            xt_bwd = (1 / jnp.sqrt(alpha_t)) * (xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred) + jnp.sqrt(beta_schedule[t]) * z
+            xt_bwd = (1 / jnp.sqrt(alpha_t)) * (
+                xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred
+            ) + jnp.sqrt(beta_schedule[t]) * z
             xT = xt_bwd
         return xt_bwd
