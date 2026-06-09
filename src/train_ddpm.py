@@ -10,7 +10,7 @@ import tensorflow as tf
 import yaml
 from tqdm import tqdm
 
-from models.model import DDPM
+from src.models.model import DDPM
 from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint
 
 tf.config.experimental.set_visible_devices([], "GPU")
@@ -42,9 +42,12 @@ def make_tf_ds(samples, batch_size):
     return ds
 
 
-def load_dataset(cfg):
+def load_dataset(cfg, max_test_samples=None):
     data_path = cfg["data"]["data_path"]
-    batch_size = cfg["training"]["batch_size"]
+    if max_test_samples:
+        batch_size = 1
+    else:
+        batch_size = cfg["training"]["batch_size"]
     train_ratio = cfg["training"]["train_ratio"]
     seeds_sub = cfg["data"]["seeds_subset"]
     time_sub = cfg["data"]["timesteps_subset"]
@@ -66,6 +69,9 @@ def load_dataset(cfg):
     train_idx = indices[:n_train]
     val_idx = indices[n_train : n_train + n_val]
     test_idx = indices[n_train + n_val :]
+
+    if max_test_samples:
+        test_idx = test_idx[:max_test_samples]
 
     train_data = data[train_idx]
     mean = np.mean(train_data)

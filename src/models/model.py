@@ -165,14 +165,26 @@ class DDPM:
             + jnp.sqrt(1 - alpha[t])[:, None, None, None] * eps
         )
 
-    def sample(self, params, dims, key):
-        T = self.config["diffusion"]["T"]
+    def sample(self, params, dims, key, x_g=None, t_start=None):
+        
+        if t_start:
+            T = t_start
+        else:
+            T = self.config["diffusion"]["T"]
+
         alpha_bar = self.alpha_bar
         beta_schedule = self.beta_schedule
         model = self.unet
-
+        
+        key, init_key = jax.random.split(key)
         keys = jax.random.split(key, T + 1)
-        xT = jax.random.normal(keys[0], dims)
+
+        if x_g is not None:
+            eps = jax.random.normal(init_key, dims)
+            xT = jnp.sqrt(alpha_bar[t_start])*x_g + jnp.sqrt(1- alpha_bar[t_start])*eps
+        else:
+            xT = jax.random.normal(keys[0], dims)
+
         for t in range(T, 0, -1):
             z = jax.random.normal(keys[t], xT.shape) if t > 1 else 0
             eps_pred = model.apply({"params": params}, xT, t, train=False)

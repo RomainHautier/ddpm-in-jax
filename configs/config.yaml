@@ -24,7 +24,7 @@ data:
   timesteps_subset: 50
   image_size: 256
   gcs_bucket: thesis-project-bucket-rh-ucl
-  data_path: gs://thesis-project-bucket-rh-ucl/flow-data/kf_2d_re1000_256_40seed.npy
+  data_path: flow-data/kf_2d_re1000_256_40seed (1).npy
 
 checkpointing:
   save_every_n_epochs: 10

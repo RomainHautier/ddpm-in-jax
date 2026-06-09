@@ -120,9 +120,9 @@ def sparsify_input(im, cfg):
     and reconstructs the missing pixels using NN methods.
     """
     
-    seeds = cfg["nn_fill"]["seed"]
+    seeds = cfg["nn_fill"]["seeds"]
     res = im.shape[0]**2
-    ds_res = int(res/cfg["sparsity_ratio"])
+    ds_res = int(res/cfg["nn_fill"]["sparsity_ratio"])
     seeded_samples = []
 
     for seed in seeds:
