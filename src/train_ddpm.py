@@ -11,7 +11,7 @@ import yaml
 from tqdm import tqdm
 
 from models.model import DDPM
-from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot
+from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint
 
 tf.config.experimental.set_visible_devices([], "GPU")
 
@@ -105,25 +105,6 @@ def train_step(params, model, ims, t, key, alpha_bar, train=True):
 
     return loss, grads
 
-
-# ---------------------------------------------------------------------------
-# Checkpointing
-# ---------------------------------------------------------------------------
-
-
-def save_checkpoint(params, opt_state, epoch, cfg):
-    ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
-    os.makedirs(ckpt_dir, exist_ok=True)
-    path = os.path.join(ckpt_dir, f"ckpt_epoch_{epoch:04d}.pkl")
-    with open(path, "wb") as f:
-        pickle.dump({"params": params, "opt_state": opt_state, "epoch": epoch}, f)
-    print(f"Saved checkpoint: {path}")
-
-
-def load_checkpoint(path):
-    with open(path, "rb") as f:
-        ckpt = pickle.load(f)
-    return ckpt["params"], ckpt["opt_state"], ckpt["epoch"]
 
 
 # ---------------------------------------------------------------------------

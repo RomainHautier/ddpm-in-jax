@@ -4,6 +4,10 @@ import os
 import gcsfs
 import matplotlib.pyplot as plt
 import numpy as np
+import jax.numpy as jnp
+import jax
+from scipy.ndimage import distance_transform_edt
+import pickle
 
 GCS_BUCKET = "thesis-project-bucket-rh-ucl"
 MONITORING_DIR = f"gs://{GCS_BUCKET}/monitoring"
@@ -65,6 +69,25 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
 
     plt.close(fig)
 
+    # ---------------------------------------------------------------------------
+# Checkpointing
+# ---------------------------------------------------------------------------
+
+
+def save_checkpoint(params, opt_state, epoch, cfg):
+    ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
+    os.makedirs(ckpt_dir, exist_ok=True)
+    path = os.path.join(ckpt_dir, f"ckpt_epoch_{epoch:04d}.pkl")
+    with open(path, "wb") as f:
+        pickle.dump({"params": params, "opt_state": opt_state, "epoch": epoch}, f)
+    print(f"Saved checkpoint: {path}")
+
+
+def load_checkpoint(path):
+    with open(path, "rb") as f:
+        ckpt = pickle.load(f)
+    return ckpt["params"], ckpt["opt_state"], ckpt["epoch"]
+
 
 def save_final_loss_plot(train_losses, val_losses):
     """Save the final loss curve to GCS at end of training."""
@@ -79,3 +102,40 @@ def save_final_loss_plot(train_losses, val_losses):
     save_plot_to_gcs(fig, "loss_final.png")
     plt.close(fig)
     print("Final loss plot saved to GCS.")
+
+
+def nn_fill(sparse_array, mask):
+    
+    filled_array = sparse_array.copy()
+    unknown = ~mask
+    _, indices = distance_transform_edt(np.array(unknown), return_indices=True)
+    filled_array = filled_array.at[unknown].set(sparse_array[indices[0][unknown] ,indices[1][unknown]])
+    
+    return filled_array
+
+
+def sparsify_input(im, cfg):
+    """ This function takes a high fidelity sample, randomly takes
+    out pixels from the image to respect the defined sparsity percentage
+    and reconstructs the missing pixels using NN methods.
+    """
+    
+    seeds = cfg["nn_fill"]["seed"]
+    res = im.shape[0]**2
+    ds_res = int(res/cfg["sparsity_ratio"])
+    seeded_samples = []
+
+    for seed in seeds:
+        key = jax.random.key(seed)
+        key, subkey = jax.random.split(key)
+
+        sparse_indices = jax.random.randint(subkey, shape = (ds_res,), minval = 0, maxval = res-1)
+        mask = jnp.zeros(res, dtype=bool).at[sparse_indices].set(True).reshape(im.shape[0], im.shape[1])
+        im_flat = im.reshape(-1, im.shape[-1])
+        sparse_array = jnp.zeros_like(im_flat).at[sparse_indices].set(im_flat[sparse_indices])
+        sparse_sample = nn_fill(sparse_array.reshape(im.shape), mask)
+        seeded_samples.append(sparse_sample)
+    
+    return seeded_samples
+
+

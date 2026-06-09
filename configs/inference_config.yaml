@@ -1,0 +1,3 @@
+nn_fill:
+  sparsity_ratio: 16
+  seeds: [42, 43, 44]
