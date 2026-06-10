@@ -53,6 +53,8 @@ def run_inference(cfgs):
     print(f"Running inference: {n_test_samples} images, {n_seeds} seeds, K={K}, S={S}", flush=True)
 
     for im_idx, batch in enumerate(test_ds):
+        if im_idx >= n_test_samples:
+            break
         print(f"\n[Image {im_idx + 1}/{n_test_samples}]", flush=True)
         im = jnp.array(batch).squeeze(0)
 
