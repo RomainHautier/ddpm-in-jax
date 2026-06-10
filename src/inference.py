@@ -1,14 +1,11 @@
-import os
-
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pickle as pkl
 import yaml
 
 from src.models.model import DDPM
 from src.train_ddpm import load_dataset
-from src.utils import load_checkpoint, sparsify_input
+from src.utils import load_checkpoint, save_results_to_gcs, sparsify_input
 
 
 def run_inference(cfgs):
@@ -85,13 +82,8 @@ def run_inference(cfgs):
 
         results["samples"].append(sample_entry)
 
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    save_dir = os.path.join(BASE_DIR, "monitoring", "sparse_reconstructions")
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, f"reconstructions_epoch_{ckpt_epoch:04d}.pkl")
-    with open(save_path, "wb") as f:
-        pkl.dump(results, f)
-    print(f"Saved reconstructions to {save_path}")
+    filename = f"reconstructions_epoch_{ckpt_epoch:04d}.pkl"
+    save_results_to_gcs(results, filename)
         
 
 if __name__ == "__main__":

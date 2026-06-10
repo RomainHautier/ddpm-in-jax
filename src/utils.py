@@ -95,6 +95,19 @@ def load_checkpoint(path):
     return params, ckpt.get("opt_state"), ckpt["epoch"]
 
 
+def save_results_to_gcs(results, filename: str):
+    """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder."""
+    import pickle
+    fs = get_fs()
+    gcs_path = f"{MONITORING_DIR}/sparse_reconstructions/{filename}"
+    buf = io.BytesIO()
+    pickle.dump(results, buf)
+    buf.seek(0)
+    with fs.open(gcs_path, "wb") as f:
+        f.write(buf.read())
+    print(f"Saved results to {gcs_path}")
+
+
 def save_final_loss_plot(train_losses, val_losses):
     """Save the final loss curve to GCS at end of training."""
     fig, ax = plt.subplots(figsize=(8, 4))
