@@ -9,13 +9,14 @@ import jax
 from scipy.ndimage import distance_transform_edt
 import pickle
 
-GCS_BUCKET = "thesis-project-bucket-rh-ucl"
+GCS_BUCKET = "ddpm-thesis-rh"
+GCS_PROJECT = "csml-thesis"
 MONITORING_DIR = f"gs://{GCS_BUCKET}/monitoring"
 
 
 def get_fs():
     """Return an authenticated GCSFileSystem."""
-    return gcsfs.GCSFileSystem(project=GCS_BUCKET)
+    return gcsfs.GCSFileSystem(project=GCS_PROJECT)
 
 
 def load_npy_from_gcs(gcs_path: str) -> np.ndarray:

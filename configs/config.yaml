@@ -23,8 +23,8 @@ data:
   seeds_subset: 8
   timesteps_subset: 50
   image_size: 256
-  gcs_bucket: thesis-project-bucket-rh-ucl
-  data_path: flow-data/kf_2d_re1000_256_40seed (1).npy
+  gcs_bucket: ddpm-thesis-rh
+  data_path: gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy
 
 checkpointing:
   save_every_n_epochs: 10

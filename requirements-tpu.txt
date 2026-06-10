@@ -1,0 +1,15 @@
+# Minimal dependencies for running ddpm-jax on a Cloud TPU VM.
+# NOTE: do NOT use the root requirements.txt on the TPU — it is a full Colab/GPU
+# environment dump (CUDA/torch/tf-gpu wheels) that would clobber the TPU jaxlib.
+#
+# jax[tpu] itself is installed separately in tpu_setup.sh from the libtpu index:
+#   pip install "jax[tpu]==0.7.2" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+flax==0.11.2
+optax==0.2.7
+numpy==2.0.2
+scipy==1.16.3
+matplotlib==3.10.0
+gcsfs==2025.3.0
+PyYAML==6.0.3
+tqdm==4.67.3
+tensorflow-cpu==2.19.0
