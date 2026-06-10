@@ -83,6 +83,7 @@ def run_inference(cfgs):
         
 
 if __name__ == "__main__":
+    
     with open("configs/inference_config.yaml", "r") as f:
         inference_cfg = yaml.safe_load(f)
     
