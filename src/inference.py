@@ -5,7 +5,7 @@ import yaml
 
 from src.models.model import DDPM
 from src.train_ddpm import load_dataset
-from src.utils import load_checkpoint, save_results_to_gcs, sparsify_input
+from src.utils import load_checkpoint, sparsify_input
 
 
 def run_inference(cfgs):
@@ -83,8 +83,14 @@ def run_inference(cfgs):
 
         results["samples"].append(sample_entry)
 
+    import os, pickle
     filename = f"reconstructions_epoch_{ckpt_epoch:04d}.pkl"
-    save_results_to_gcs(results, filename)
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "monitoring", "sparse_reconstructions")
+    os.makedirs(save_dir, exist_ok=True)
+    local_path = os.path.join(save_dir, filename)
+    with open(local_path, "wb") as f:
+        pickle.dump(results, f)
+    print(f"Saved results locally to {local_path}", flush=True)
         
 
 if __name__ == "__main__":
