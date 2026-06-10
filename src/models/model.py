@@ -188,6 +188,8 @@ class DDPM:
         xT = xT[None]  # (H, W, C) -> (1, H, W, C): model expects a batch dimension
 
         for t in range(T, 0, -1):
+            if t % 10 == 0 or t == T:
+                print(f"    denoising t={t}/{T}", flush=True)
             z = jax.random.normal(keys[t], xT.shape) if t > 1 else 0
             eps_pred = model.apply({"params": params}, xT, jnp.array([t]), train=False)
             alpha_bar_t = alpha_bar[t]

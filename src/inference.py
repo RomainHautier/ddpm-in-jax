@@ -17,10 +17,14 @@ def run_inference(cfgs):
     is sparsified, sparse pixels are filled using NN methods to obtain
     the low res flow and fed to the model to perform inference."""
 
+    print(f"JAX devices: {jax.devices()}", flush=True)
+
     # Load the model
     ckpt_path = cfgs[1]["sparse_diffusion"]["checkpoint"]
+    print(f"Loading checkpoint: {ckpt_path}", flush=True)
     ddpm = DDPM(cfgs[0])
     params, _, ckpt_epoch = load_checkpoint(ckpt_path)
+    print(f"Loaded checkpoint epoch {ckpt_epoch}", flush=True)
 
     n_test_samples = cfgs[1]["sparse_diffusion"]["n_samples"]
     K = cfgs[1]["sparse_diffusion"]["K"]
@@ -45,7 +49,11 @@ def run_inference(cfgs):
         "samples": [],
     }
 
+    n_seeds = len(cfgs[1]["nn_fill"]["seeds"])
+    print(f"Running inference: {n_test_samples} images, {n_seeds} seeds, K={K}, S={S}", flush=True)
+
     for im_idx, batch in enumerate(test_ds):
+        print(f"\n[Image {im_idx + 1}/{n_test_samples}]", flush=True)
         im = jnp.array(batch).squeeze(0)
 
         sparse_inputs = sparsify_input(im, cfgs[1])
@@ -57,6 +65,7 @@ def run_inference(cfgs):
         }
 
         for seed_idx, x_g_init in enumerate(sparse_inputs):
+            print(f"  seed {seed_idx + 1}/{n_seeds}", flush=True)
             x_g = x_g_init
             seed_entry = {
                 "sparse_input": np.array(x_g_init),
@@ -64,6 +73,7 @@ def run_inference(cfgs):
             }
 
             for j in range(K):
+                print(f"  iteration {j + 1}/{K} (S={S[j]} denoising steps)", flush=True)
                 x0 = ddpm.sample(params=params, dims=x_g.shape, key=noise_key, x_g=x_g, t_start=S[j])
                 x_g = x0
                 seed_entry["iterations"].append(np.array(x0))
