@@ -4,6 +4,7 @@ checkpoints/**
 !checkpoints/ddpm/ckpt_epoch_0299.pkl
 flow-data/
 monitoring/
+creds.txt
 
 # Large binary files
 *.pkl
