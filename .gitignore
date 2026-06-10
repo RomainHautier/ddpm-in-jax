@@ -1,10 +1,13 @@
 # Data and outputs
-checkpoints/
+checkpoints/**
+!checkpoints/ddpm/
+!checkpoints/ddpm/ckpt_epoch_0299.pkl
 flow-data/
 monitoring/
 
 # Large binary files
 *.pkl
+!checkpoints/ddpm/ckpt_epoch_0299.pkl
 *.npy
 
 # Python
