@@ -40,7 +40,7 @@ def run_inference(cfgs):
         "metadata": {
             "checkpoint": ckpt_path,
             "checkpoint_epoch": ckpt_epoch,
-            "sparsity_ratio": cfgs[1]["sparsity_ratio"],
+            "sparsity_ratio": cfgs[1]["nn_fill"]["sparsity_ratio"],
             "K": K,
             "S": S,
             "inference_seed": cfgs[1]["inference_seed"],

@@ -2,7 +2,7 @@ sparse_diffusion:
   n_samples: 10
   K: 3
   S: [150, 100, 50]
-  checkpoint: "checkpoints/ckpt_apoch_0299.pkl"
+  checkpoint: "checkpoints/ddpm/ckpt_epoch_0299.pkl"
 
 
 nn_fill:
