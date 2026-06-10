@@ -185,13 +185,15 @@ class DDPM:
         else:
             xT = jax.random.normal(keys[0], dims)
 
+        xT = xT[None]  # (H, W, C) -> (1, H, W, C): model expects a batch dimension
+
         for t in range(T, 0, -1):
             z = jax.random.normal(keys[t], xT.shape) if t > 1 else 0
-            eps_pred = model.apply({"params": params}, xT, t, train=False)
+            eps_pred = model.apply({"params": params}, xT, jnp.array([t]), train=False)
             alpha_bar_t = alpha_bar[t]
             alpha_t = 1 - beta_schedule[t]
             xt_bwd = (1 / jnp.sqrt(alpha_t)) * (
                 xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred
             ) + jnp.sqrt(beta_schedule[t]) * z
             xT = xt_bwd
-        return xt_bwd
+        return xt_bwd[0]  # (1, H, W, C) -> (H, W, C)
