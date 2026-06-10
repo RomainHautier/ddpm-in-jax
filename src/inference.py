@@ -84,7 +84,7 @@ def run_inference(cfgs):
         results["samples"].append(sample_entry)
 
     import os, pickle
-    filename = f"reconstructions_epoch_{ckpt_epoch:04d}.pkl"
+    filename = f"reconstructions_sratio_{cfgs[1]["nn_fill"]["sparsity_ratio"]}.pkl"
     save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "monitoring", "sparse_reconstructions")
     os.makedirs(save_dir, exist_ok=True)
     local_path = os.path.join(save_dir, filename)
