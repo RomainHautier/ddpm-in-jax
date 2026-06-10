@@ -31,7 +31,7 @@ def run_inference(cfgs):
 
     _, _, test_ds, mean, std = load_dataset(cfgs[0], max_test_samples=n_test_samples)
 
-    noise_key = jax.random.key(cfgs[1]["inference_seed"])
+    base_key = jax.random.key(cfgs[1]["inference_seed"])
 
     results = {
         "metadata": {
@@ -70,8 +70,9 @@ def run_inference(cfgs):
                 "sparse_input": np.array(x_g_init),
                 "iterations": [],
             }
-
+            
             for j in range(K):
+                noise_key = jax.random.fold_in(base_key, im_idx*n_seeds*K + seed_idx *K + j)
                 print(f"  iteration {j + 1}/{K} (S={S[j]} denoising steps)", flush=True)
                 x0 = ddpm.sample(params=params, dims=x_g.shape, key=noise_key, x_g=x_g, t_start=S[j])
                 x_g = x0
