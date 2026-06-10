@@ -84,9 +84,15 @@ def save_checkpoint(params, opt_state, epoch, cfg):
 
 
 def load_checkpoint(path):
+    import flax.serialization
     with open(path, "rb") as f:
         ckpt = pickle.load(f)
-    return ckpt["params"], ckpt["opt_state"], ckpt["epoch"]
+    params_raw = ckpt["params"]
+    if isinstance(params_raw, bytes):
+        params = flax.serialization.msgpack_restore(params_raw)
+    else:
+        params = params_raw
+    return params, ckpt.get("opt_state"), ckpt["epoch"]
 
 
 def save_final_loss_plot(train_losses, val_losses):
