@@ -44,42 +44,33 @@ def make_tf_ds(samples, batch_size):
 
 def load_dataset(cfg, max_test_samples=None):
     data_path = cfg["data"]["data_path"]
-    if max_test_samples:
-        batch_size = 1
-    else:
-        batch_size = cfg["training"]["batch_size"]
-    train_ratio = cfg["training"]["train_ratio"]
-    seeds_sub = cfg["data"]["seeds_subset"]
-    time_sub = cfg["data"]["timesteps_subset"]
+    batch_size = 1 if max_test_samples else cfg["training"]["batch_size"]
+    n_train_seqs = cfg["data"]["n_train_seqs"]  # 32 (80%)
+    n_val_seqs   = cfg["data"]["n_val_seqs"]    # 4  (10%)
+    n_test_seqs  = cfg["data"]["n_test_seqs"]   # 4  (10%)
 
     if data_path.startswith("gs://"):
         data = load_npy_from_gcs(data_path)
     else:
         data = np.load(data_path)
 
-    data = data[:seeds_sub, :time_sub, :, :]
-
-    np.random.seed(cfg["training"]["seed"])
-    indices = np.arange(data.shape[0])
-    np.random.shuffle(indices)
-
-    n_train = int(train_ratio * len(indices))
-    n_val = int(0.1 * len(indices))
-
-    train_idx = indices[:n_train]
-    val_idx = indices[n_train : n_train + n_val]
-    test_idx = indices[n_train + n_val :]
+    train_idx = np.arange(n_train_seqs)
+    val_idx   = np.arange(n_train_seqs, n_train_seqs + n_val_seqs)
+    test_idx  = np.arange(n_train_seqs + n_val_seqs, n_train_seqs + n_val_seqs + n_test_seqs)
 
     if max_test_samples:
         test_idx = test_idx[:max_test_samples]
 
-    train_data = data[train_idx]
-    mean = np.mean(train_data)
-    std = np.std(train_data)
+    mean = np.mean(data[train_idx])
+    std  = np.std(data[train_idx])
+
+    n_triplets = data.shape[1] - 2
+    print(f"Dataset split — train: {len(train_idx)} seqs, val: {len(val_idx)} seqs, test: {len(test_idx)} seqs")
+    print(f"Triplets per seq: {n_triplets}  |  mean={mean:.4f}, std={std:.4f}")
 
     train_ds = make_tf_ds(build_samples(data, train_idx, mean, std), batch_size)
-    val_ds = make_tf_ds(build_samples(data, val_idx, mean, std), batch_size)
-    test_ds = make_tf_ds(build_samples(data, test_idx, mean, std), batch_size)
+    val_ds   = make_tf_ds(build_samples(data, val_idx,   mean, std), batch_size)
+    test_ds  = make_tf_ds(build_samples(data, test_idx,  mean, std), batch_size)
 
     return train_ds, val_ds, test_ds, mean, std
 
