@@ -13,6 +13,9 @@ GCS_BUCKET = "ddpm-thesis-rh"
 GCS_PROJECT = "csml-thesis"
 MONITORING_DIR = f"gs://{GCS_BUCKET}/monitoring"
 
+# ---------------------------------------------------------------------------
+# Loading & Saving Data
+# ---------------------------------------------------------------------------
 
 def get_fs():
     """Return an authenticated GCSFileSystem."""
@@ -46,6 +49,38 @@ def save_plot_to_gcs(fig, filename: str):
     print(f"Saved plot to {gcs_path}")
 
 
+def save_results_to_gcs(results, filename: str):
+    """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder."""
+    import pickle
+    fs = get_fs()
+    gcs_path = f"{MONITORING_DIR}/sparse_reconstructions/{filename}"
+    buf = io.BytesIO()
+    pickle.dump(results, buf)
+    buf.seek(0)
+    with fs.open(gcs_path, "wb") as f:
+        f.write(buf.read())
+    print(f"Saved results to {gcs_path}")
+
+
+def save_final_loss_plot(train_losses, val_losses):
+    """Save the final loss curve to GCS at end of training."""
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(train_losses, label="train", color="steelblue")
+    ax.plot(val_losses, label="val", color="coral")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("MSE Loss")
+    ax.set_title("DDPM Training — Final")
+    ax.legend()
+    plt.tight_layout()
+    save_plot_to_gcs(fig, "loss_final.png")
+    plt.close(fig)
+    print("Final loss plot saved to GCS.")
+
+# ---------------------------------------------------------------------------
+# Plotting utilities
+# ---------------------------------------------------------------------------
+
+
 def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
     """
     Plot train and val losses. Displays inline and optionally saves to GCS.
@@ -72,7 +107,7 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
 
     plt.close(fig)
 
-    # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Checkpointing
 # ---------------------------------------------------------------------------
 
@@ -115,33 +150,9 @@ def load_checkpoint(path):
     return params, ckpt.get("opt_state"), ckpt["epoch"]
 
 
-def save_results_to_gcs(results, filename: str):
-    """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder."""
-    import pickle
-    fs = get_fs()
-    gcs_path = f"{MONITORING_DIR}/sparse_reconstructions/{filename}"
-    buf = io.BytesIO()
-    pickle.dump(results, buf)
-    buf.seek(0)
-    with fs.open(gcs_path, "wb") as f:
-        f.write(buf.read())
-    print(f"Saved results to {gcs_path}")
-
-
-def save_final_loss_plot(train_losses, val_losses):
-    """Save the final loss curve to GCS at end of training."""
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(train_losses, label="train", color="steelblue")
-    ax.plot(val_losses, label="val", color="coral")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("MSE Loss")
-    ax.set_title("DDPM Training — Final")
-    ax.legend()
-    plt.tight_layout()
-    save_plot_to_gcs(fig, "loss_final.png")
-    plt.close(fig)
-    print("Final loss plot saved to GCS.")
-
+# ---------------------------------------------------------------------------
+# Data preprocessing
+# ---------------------------------------------------------------------------
 
 def nn_fill(sparse_array, mask):
     
@@ -191,3 +202,10 @@ def sparsify_input(im, cfg):
     return seeded_samples
 
 
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+def mse(a, b):
+    sq_diff = (a-b)**2
+    return [jnp.mean(sq_diff), sq_diff]

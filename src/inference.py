@@ -5,7 +5,7 @@ import yaml
 
 from src.models.model import DDPM
 from src.train_ddpm import load_dataset
-from src.utils import load_checkpoint, sparsify_input, lr_input
+from src.utils import load_checkpoint, sparsify_input, lr_input, save_results_to_gcs
 
 
 def run_inference(cfgs):
@@ -105,6 +105,8 @@ def run_inference(cfgs):
     with open(local_path, "wb") as f:
         pickle.dump(results, f)
     print(f"Saved results locally to {local_path}", flush=True)
+
+    save_results_to_gcs(results, filename)
         
 
 if __name__ == "__main__":

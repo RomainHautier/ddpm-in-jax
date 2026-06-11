@@ -1,8 +1,13 @@
+plain_diffusion:
+  n_samples: 10
+  S: [10, 50, 100, 200, 400, 600, 800]
+  checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
+
 sparse_diffusion:
   n_samples: 10
   K: 3
   S: [150, 100, 50]
-  checkpoint: "checkpoints/ddpm/ckpt_epoch_0299.pkl"
+  checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
 
 
 nn_fill:
@@ -12,7 +17,7 @@ nn_fill:
 inference_seed: 42
 
 super_resolution:
-  task: 1 # either 1 or 2, task 1 is the simple deterministic low res to high res task, 
+  task: 2 # either 1 or 2, task 1 is the simple deterministic low res to high res task, 
   # task 2 uses randomly sampled colocation points and fills the sparse pixels using NN fill method.
-  lr_res: 32           # LR grid size (32x32 -> 256x256 is 64x sparsity)
+  lr_res: 64          # LR grid size (32x32 -> 256x256 is 64x sparsity)
   upsample_method: bicubic   # bicubic or bilinear
