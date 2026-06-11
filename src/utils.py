@@ -51,9 +51,12 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
     Plot train and val losses. Displays inline and optionally saves to GCS.
     Called every epoch from the training loop.
     """
-    from IPython.display import clear_output
+    try:
+        from IPython.display import clear_output
 
-    clear_output(wait=True)
+        clear_output(wait=True)
+    except ImportError:
+        pass  # running headless (e.g. on the TPU VM), no notebook to clear
 
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(train_losses, label="train", color="steelblue")
@@ -63,7 +66,6 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
     ax.set_title(f"DDPM Training — Epoch {epoch}")
     ax.legend()
     plt.tight_layout()
-    plt.show()
 
     if save_to_gcs and len(train_losses) > 0:
         save_plot_to_gcs(fig, f"loss_epoch_{epoch:04d}.png")
@@ -77,17 +79,34 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
 
 def save_checkpoint(params, opt_state, epoch, cfg):
     ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
-    os.makedirs(ckpt_dir, exist_ok=True)
-    path = os.path.join(ckpt_dir, f"ckpt_epoch_{epoch:04d}.pkl")
-    with open(path, "wb") as f:
-        pickle.dump({"params": params, "opt_state": opt_state, "epoch": epoch}, f)
+    filename = f"ckpt_epoch_{epoch:04d}.pkl"
+    payload = {"params": params, "opt_state": opt_state, "epoch": epoch}
+
+    if ckpt_dir.startswith("gs://"):
+        fs = get_fs()
+        path = f"{ckpt_dir.rstrip('/')}/{filename}"
+        buf = io.BytesIO()
+        pickle.dump(payload, buf)
+        buf.seek(0)
+        with fs.open(path, "wb") as f:
+            f.write(buf.read())
+    else:
+        os.makedirs(ckpt_dir, exist_ok=True)
+        path = os.path.join(ckpt_dir, filename)
+        with open(path, "wb") as f:
+            pickle.dump(payload, f)
     print(f"Saved checkpoint: {path}")
 
 
 def load_checkpoint(path):
     import flax.serialization
-    with open(path, "rb") as f:
-        ckpt = pickle.load(f)
+    if path.startswith("gs://"):
+        fs = get_fs()
+        with fs.open(path, "rb") as f:
+            ckpt = pickle.load(f)
+    else:
+        with open(path, "rb") as f:
+            ckpt = pickle.load(f)
     params_raw = ckpt["params"]
     if isinstance(params_raw, bytes):
         params = flax.serialization.msgpack_restore(params_raw)

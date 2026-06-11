@@ -28,4 +28,4 @@ data:
 
 checkpointing:
   save_every_n_epochs: 10
-  checkpoint_dir: checkpoints/ddpm
+  checkpoint_dir: gs://ddpm-thesis-rh/checkpoints/ddpm

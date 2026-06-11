@@ -1,6 +1,6 @@
-import functools
 import os
 import pickle
+
 
 import jax
 import jax.numpy as jnp
@@ -8,6 +8,7 @@ import numpy as np
 import optax
 import tensorflow as tf
 import yaml
+from jax.sharding import NamedSharding, PartitionSpec as P
 from tqdm import tqdm
 
 from src.models.model import DDPM
@@ -89,27 +90,41 @@ def load_dataset(cfg, max_test_samples=None):
 # ---------------------------------------------------------------------------
 
 
-@functools.partial(jax.jit, static_argnums=(1, 5))
-def train_step(params, model, ims, t, key, alpha_bar, train=True):
-    def loss_fn(params):
+def make_steps(model, optimizer, alpha_bar):
+    """Build jitted train/eval steps closing over the (static) model, optimizer
+    and noise schedule. Batches are sharded across all devices, so JAX's GSPMD
+    runs the forward/backward pass data-parallel over every TPU chip and
+    all-reduces the gradients automatically."""
+
+    def _noised(params, ims, t, key):
         eps = jax.random.normal(key, ims.shape)
         noised = (
             jnp.sqrt(alpha_bar[t])[:, None, None, None] * ims
             + jnp.sqrt(1 - alpha_bar[t])[:, None, None, None] * eps
         )
-        if train:
-            eps_pred = model.apply({"params": params}, noised, t, train=True, rngs={"dropout": key})
-        else:
-            eps_pred = model.apply({"params": params}, noised, t, train=False)
+        return eps, noised
+
+    @jax.jit
+    def train_step(params, opt_state, ims, t, key):
+        def loss_fn(params):
+            eps, noised = _noised(params, ims, t, key)
+            eps_pred = model.apply(
+                {"params": params}, noised, t, train=True, rngs={"dropout": key}
+            )
+            return jnp.mean((eps - eps_pred) ** 2)
+
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+        updates, opt_state = optimizer.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        return params, opt_state, loss
+
+    @jax.jit
+    def eval_step(params, ims, t, key):
+        eps, noised = _noised(params, ims, t, key)
+        eps_pred = model.apply({"params": params}, noised, t, train=False)
         return jnp.mean((eps - eps_pred) ** 2)
 
-    if train:
-        loss, grads = jax.value_and_grad(loss_fn)(params)
-    else:
-        loss = loss_fn(params)
-        grads = None
-
-    return loss, grads
+    return train_step, eval_step
 
 
 
@@ -141,6 +156,29 @@ def train(cfg):
     optimizer = optax.adam(learning_rate=cfg["training"]["learning_rate"])
     opt_state = optimizer.init(params)
 
+    # Data parallelism: replicate the model across every chip and shard each
+    # batch along its leading (batch) axis. The loss is a single mean over the
+    # *global* batch of `batch_size`, so the gradient GSPMD all-reduces is
+    # exactly the batch-of-`batch_size` gradient — identical to single-device
+    # training, just split 4 ways. No manual gradient accumulation needed.
+    n_devices = jax.device_count()
+    if batch_size % n_devices != 0:
+        raise ValueError(
+            f"batch_size={batch_size} must be divisible by the {n_devices} "
+            "available devices for data-parallel training."
+        )
+    mesh = jax.make_mesh((n_devices,), ("data",))
+    data_sharding = NamedSharding(mesh, P("data"))
+    repl_sharding = NamedSharding(mesh, P())
+    params = jax.device_put(params, repl_sharding)
+    opt_state = jax.device_put(opt_state, repl_sharding)
+    print(
+        f"Data-parallel over {n_devices} devices "
+        f"(global batch {batch_size}, {batch_size // n_devices} samples/device)."
+    )
+
+    train_step, eval_step = make_steps(model, optimizer, alpha_bar)
+
     # Data
     train_ds, val_ds, _, mean, std = load_dataset(cfg)
     print(f"Dataset loaded — mean={mean:.4f}, std={std:.4f}")
@@ -151,21 +189,21 @@ def train(cfg):
         # --- training ---
         epoch_train = []
         for ims in train_ds:
-            ims = jnp.array(ims.numpy())
+            ims = jax.device_put(jnp.asarray(ims.numpy()), data_sharding)
             key, t_key, noise_key = jax.random.split(key, 3)
             t = jax.random.randint(t_key, (batch_size,), minval=0, maxval=T)
-            loss, grads = train_step(params, model, ims, t, noise_key, alpha_bar, train=True)
-            updates, opt_state = optimizer.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
+            t = jax.device_put(t, data_sharding)
+            params, opt_state, loss = train_step(params, opt_state, ims, t, noise_key)
             epoch_train.append(float(loss))
 
         # --- validation ---
         epoch_val = []
         for ims in val_ds:
-            ims = jnp.array(ims.numpy())
+            ims = jax.device_put(jnp.asarray(ims.numpy()), data_sharding)
             key, t_key, noise_key = jax.random.split(key, 3)
             t = jax.random.randint(t_key, (batch_size,), minval=0, maxval=T)
-            loss, _ = train_step(params, model, ims, t, noise_key, alpha_bar, train=False)
+            t = jax.device_put(t, data_sharding)
+            loss = eval_step(params, ims, t, noise_key)
             epoch_val.append(float(loss))
 
         train_losses.append(float(jnp.mean(jnp.array(epoch_train))))
