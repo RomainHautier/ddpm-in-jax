@@ -16,15 +16,15 @@ training:
   batch_size: 32
   learning_rate: 0.0002
   n_epochs: 300
-  train_ratio: 0.7
   seed: 0
 
 data:
-  seeds_subset: 8
-  timesteps_subset: 50
   image_size: 256
   gcs_bucket: ddpm-thesis-rh
   data_path: gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy
+  n_train_seqs: 32
+  n_val_seqs: 4
+  n_test_seqs: 4
 
 checkpointing:
   save_every_n_epochs: 10

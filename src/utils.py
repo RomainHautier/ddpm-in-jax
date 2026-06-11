@@ -153,6 +153,19 @@ def nn_fill(sparse_array, mask):
     return filled_array
 
 
+def lr_input(im, cfg):
+    """Downsample to a regular LR grid then upsample back to HR resolution.
+    Implements the super-resolution (Task 1) conditioning input.
+    method: 'bicubic' or 'bilinear' (set in inference_config.yaml under super_resolution)
+    """
+    sr_cfg = cfg["super_resolution"]
+    lr_res = sr_cfg["lr_res"]
+    method = sr_cfg.get("upsample_method", "bicubic")
+    stride = im.shape[0] // lr_res
+    lr = im[::stride, ::stride, :]
+    return [jax.image.resize(lr, im.shape, method=method)]
+
+
 def sparsify_input(im, cfg):
     """ This function takes a high fidelity sample, randomly takes
     out pixels from the image to respect the defined sparsity percentage

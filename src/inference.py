@@ -5,7 +5,7 @@ import yaml
 
 from src.models.model import DDPM
 from src.train_ddpm import load_dataset
-from src.utils import load_checkpoint, sparsify_input
+from src.utils import load_checkpoint, sparsify_input, lr_input
 
 
 def run_inference(cfgs):
@@ -33,29 +33,39 @@ def run_inference(cfgs):
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
 
+    task = cfgs[1]["super_resolution"]["task"]
+
+    if task == 1:
+        task_meta = {"lr_res": cfgs[1]["super_resolution"]["lr_res"], "upsample_method": cfgs[1]["super_resolution"]["upsample_method"]}
+    else:
+        task_meta = {"sparsity_ratio": cfgs[1]["nn_fill"]["sparsity_ratio"], "seeds": cfgs[1]["nn_fill"]["seeds"]}
+
     results = {
         "metadata": {
+            "task": task,
             "checkpoint": ckpt_path,
             "checkpoint_epoch": ckpt_epoch,
-            "sparsity_ratio": cfgs[1]["nn_fill"]["sparsity_ratio"],
             "K": K,
             "S": S,
             "inference_seed": cfgs[1]["inference_seed"],
             "n_samples": n_test_samples,
+            **task_meta,
         },
         "samples": [],
     }
 
-    n_seeds = len(cfgs[1]["nn_fill"]["seeds"])
-    print(f"Running inference: {n_test_samples} images, {n_seeds} seeds, K={K}, S={S}", flush=True)
+    print(f"Running inference (task {task}): {n_test_samples} images, K={K}, S={S}", flush=True)
 
     for im_idx, batch in enumerate(test_ds):
         if im_idx >= n_test_samples:
             break
         print(f"\n[Image {im_idx + 1}/{n_test_samples}]", flush=True)
         im = jnp.array(batch).squeeze(0)
-
-        sparse_inputs = sparsify_input(im, cfgs[1])
+        
+        if cfgs[1]["super_resolution"]["task"] == 1:
+            sparse_inputs = lr_input(im, cfg=cfgs[1])
+        else:
+            sparse_inputs = sparsify_input(im, cfgs[1])
 
         sample_entry = {
             "image_idx": im_idx,
@@ -63,8 +73,9 @@ def run_inference(cfgs):
             "seeds": {},
         }
 
+        n_inputs = len(sparse_inputs)
         for seed_idx, x_g_init in enumerate(sparse_inputs):
-            print(f"  seed {seed_idx + 1}/{n_seeds}", flush=True)
+            print(f"  input {seed_idx + 1}/{n_inputs}", flush=True)
             x_g = x_g_init
             seed_entry = {
                 "sparse_input": np.array(x_g_init),
@@ -72,7 +83,7 @@ def run_inference(cfgs):
             }
             
             for j in range(K):
-                noise_key = jax.random.fold_in(base_key, im_idx*n_seeds*K + seed_idx *K + j)
+                noise_key = jax.random.fold_in(base_key, im_idx * n_inputs * K + seed_idx * K + j)
                 print(f"  iteration {j + 1}/{K} (S={S[j]} denoising steps)", flush=True)
                 x0 = ddpm.sample(params=params, dims=x_g.shape, key=noise_key, x_g=x_g, t_start=S[j])
                 x_g = x0
@@ -84,7 +95,10 @@ def run_inference(cfgs):
         results["samples"].append(sample_entry)
 
     import os, pickle
-    filename = f"reconstructions_sratio_{cfgs[1]["nn_fill"]["sparsity_ratio"]}.pkl"
+    if task == 1:
+        filename = f"reconstructions_task1_lr{cfgs[1]['super_resolution']['lr_res']}.pkl"
+    else:
+        filename = f"reconstructions_task2_sratio{cfgs[1]['nn_fill']['sparsity_ratio']}.pkl"
     save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "monitoring", "sparse_reconstructions")
     os.makedirs(save_dir, exist_ok=True)
     local_path = os.path.join(save_dir, filename)
