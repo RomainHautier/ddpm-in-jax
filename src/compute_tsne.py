@@ -108,7 +108,14 @@ for fname in args.result_files:
     print(f"  loaded {key}", flush=True)
 
 recon_vecs_flat = []
-recon_meta = []  # (cfg_key, n_pts)
+recon_meta = []   # (cfg_key, image_idx, n_pts)
+gt_vecs_flat = []
+gt_image_ids = [] # one GT anchor per example image (shared across configs)
+
+first_res = list(all_results.values())[0]
+for sample in first_res["samples"][:args.show_n]:
+    gt_vecs_flat.append(sample["ground_truth"].flatten())
+    gt_image_ids.append(sample["image_idx"])
 
 for cfg_key, res in all_results.items():
     for sample in res["samples"][:args.show_n]:
@@ -116,7 +123,7 @@ for cfg_key, res in all_results.items():
             pts = ([seed_entry["sparse_input"].flatten()]
                    + [it.flatten() for it in seed_entry["iterations"]])
             recon_vecs_flat.extend(pts)
-            recon_meta.append((cfg_key, len(pts)))
+            recon_meta.append((cfg_key, sample["image_idx"], len(pts)))
 
 # ---------------------------------------------------------------------------
 # Subsample background frames
@@ -128,9 +135,10 @@ val_sub  = val_frames.reshape(len(val_frames),  -1)[
 test_sub = test_frames.reshape(len(test_frames), -1)[
     rng.choice(len(test_frames), min(args.max_bg, len(test_frames)), replace=False)]
 
-all_vecs   = np.concatenate([val_sub, test_sub, np.array(recon_vecs_flat)])
+all_vecs   = np.concatenate([val_sub, test_sub, np.array(gt_vecs_flat), np.array(recon_vecs_flat)])
 n_val_sub  = len(val_sub)
 n_test_sub = len(test_sub)
+n_gt       = len(gt_vecs_flat)
 
 print(f"\nTotal points for t-SNE: {len(all_vecs)} "
       f"({n_val_sub} val, {n_test_sub} test, {len(recon_vecs_flat)} recon)", flush=True)
@@ -183,10 +191,12 @@ print("Done.", flush=True)
 # ---------------------------------------------------------------------------
 
 result = {
-    "embedded":     embedded,
-    "n_val_sub":    n_val_sub,
-    "n_test_sub":   n_test_sub,
-    "recon_meta":   recon_meta,
+    "embedded":      embedded,
+    "n_val_sub":     n_val_sub,
+    "n_test_sub":    n_test_sub,
+    "n_gt":          n_gt,
+    "gt_image_ids":  gt_image_ids,
+    "recon_meta":    recon_meta,   # list of (cfg_key, image_idx, n_pts)
     "params": {
         "perplexity": args.perplexity,
         "n_iter":     args.n_iter,
