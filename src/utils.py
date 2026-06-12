@@ -24,13 +24,19 @@ def get_fs():
 
 def load_npy_from_gcs(gcs_path: str) -> np.ndarray:
     """
-    Load a .npy file directly from GCS into memory.
+    Load a .npy file from GCS, caching it locally under flow-data/.
     gcs_path: full gs:// path, e.g. 'gs://bucket/folder/file.npy'
     """
-    fs = get_fs()
-    with fs.open(gcs_path, "rb") as f:
-        data = np.load(f)
-    print(f"Loaded {gcs_path} — shape: {data.shape}")
+    import subprocess
+    local_cache = os.path.join("flow-data", os.path.basename(gcs_path))
+    os.makedirs("flow-data", exist_ok=True)
+    if not os.path.exists(local_cache):
+        print(f"Downloading {gcs_path} → {local_cache} …")
+        subprocess.run(["gcloud", "storage", "cp", gcs_path, local_cache], check=True)
+    else:
+        print(f"Using cached {local_cache}")
+    data = np.load(local_cache)
+    print(f"Loaded {local_cache} — shape: {data.shape}")
     return data
 
 
@@ -137,7 +143,8 @@ def load_checkpoint(path):
     import flax.serialization
     if path.startswith("gs://"):
         import subprocess, tempfile
-        tmp = tempfile.mktemp(suffix=".pkl")
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as t:
+            tmp = t.name
         subprocess.run(["gcloud", "storage", "cp", path, tmp], check=True)
         with open(tmp, "rb") as f:
             ckpt = pickle.load(f)
