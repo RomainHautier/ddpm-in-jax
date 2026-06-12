@@ -54,12 +54,15 @@ data_path = args.local_data or data_cfg["data_path"]
 
 print(f"Loading data from {data_path} …", flush=True)
 if data_path.startswith("gs://"):
-    import subprocess, tempfile
-    tmp = tempfile.mktemp(suffix=".npy")
-    print(f"  downloading via gcloud storage cp → {tmp}", flush=True)
-    subprocess.run(["gcloud", "storage", "cp", data_path, tmp], check=True)
-    data = np.load(tmp)
-    os.unlink(tmp)
+    import subprocess
+    local_cache = os.path.join("flow-data", os.path.basename(data_path))
+    os.makedirs("flow-data", exist_ok=True)
+    if not os.path.exists(local_cache):
+        print(f"  downloading to {local_cache} …", flush=True)
+        subprocess.run(["gcloud", "storage", "cp", data_path, local_cache], check=True)
+    else:
+        print(f"  using cached {local_cache}", flush=True)
+    data = np.load(local_cache)
 else:
     data = np.load(data_path)
 
