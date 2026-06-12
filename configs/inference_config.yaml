@@ -17,7 +17,6 @@ nn_fill:
 inference_seed: 42
 
 super_resolution:
-  task: 2 # either 1 or 2, task 1 is the simple deterministic low res to high res task, 
-  # task 2 uses randomly sampled colocation points and fills the sparse pixels using NN fill method.
+  task: 2  # 1=deterministic LR→HR bicubic, 2=random sparse NN-fill
   lr_res: 64          # LR grid size (32x32 -> 256x256 is 64x sparsity)
-  upsample_method: bicubic   # bicubic or bilinear
+  upsample_method: bicubic
