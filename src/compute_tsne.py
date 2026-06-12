@@ -54,11 +54,12 @@ data_path = args.local_data or data_cfg["data_path"]
 
 print(f"Loading data from {data_path} …", flush=True)
 if data_path.startswith("gs://"):
-    import gcsfs
-    GCS_PROJECT = "csml-thesis"
-    fs = gcsfs.GCSFileSystem(project=GCS_PROJECT, token="google_default")
-    with fs.open(data_path, "rb") as f:
-        data = np.load(f)
+    import subprocess, tempfile
+    tmp = tempfile.mktemp(suffix=".npy")
+    print(f"  downloading via gcloud storage cp → {tmp}", flush=True)
+    subprocess.run(["gcloud", "storage", "cp", data_path, tmp], check=True)
+    data = np.load(tmp)
+    os.unlink(tmp)
 else:
     data = np.load(data_path)
 
