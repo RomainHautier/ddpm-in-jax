@@ -30,7 +30,7 @@ def run_inference(cfgs):
 
     n_test_samples = cfgs[1]["plain_diffusion"]["n_samples"]
     S = cfgs[1]["plain_diffusion"]["S"]
-    _, _, test_ds, mean, std = load_dataset(cfgs[0], max_test_samples=n_test_samples, batch_size=n_devices)
+    _, _, test_ds, mean, std = load_dataset(cfgs[0], max_test_samples=n_test_samples, n_devices=n_devices)
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
 
