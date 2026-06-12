@@ -35,9 +35,10 @@ def build_samples(data, idx_list, mean, std):
     return np.array(samples, dtype=np.float32)
 
 
-def make_tf_ds(samples, batch_size):
+def make_tf_ds(samples, batch_size, shuffle=True):
     ds = tf.data.Dataset.from_tensor_slices(samples)
-    ds = ds.shuffle(10000)
+    if shuffle:
+        ds = ds.shuffle(10000)
     ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.prefetch(tf.data.AUTOTUNE)
     return ds
@@ -69,9 +70,9 @@ def load_dataset(cfg, max_test_samples=None):
     print(f"Dataset split — train: {len(train_idx)} seqs, val: {len(val_idx)} seqs, test: {len(test_idx)} seqs")
     print(f"Triplets per seq: {n_triplets}  |  mean={mean:.4f}, std={std:.4f}")
 
-    train_ds = make_tf_ds(build_samples(data, train_idx, mean, std), batch_size)
-    val_ds   = make_tf_ds(build_samples(data, val_idx,   mean, std), batch_size)
-    test_ds  = make_tf_ds(build_samples(data, test_idx,  mean, std), batch_size)
+    train_ds = make_tf_ds(build_samples(data, train_idx, mean, std), batch_size, shuffle=True)
+    val_ds   = make_tf_ds(build_samples(data, val_idx,   mean, std), batch_size, shuffle=False)
+    test_ds  = make_tf_ds(build_samples(data, test_idx,  mean, std), batch_size, shuffle=False)
 
     return train_ds, val_ds, test_ds, mean, std
 
