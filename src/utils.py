@@ -57,14 +57,16 @@ def save_plot_to_gcs(fig, filename: str):
 
 def save_results_to_gcs(results, filename: str):
     """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder."""
-    import pickle
-    fs = get_fs()
+    import subprocess, tempfile
+    local_path = os.path.join("monitoring", "sparse_reconstructions", filename)
     gcs_path = f"{MONITORING_DIR}/sparse_reconstructions/{filename}"
-    buf = io.BytesIO()
-    pickle.dump(results, buf)
-    buf.seek(0)
-    with fs.open(gcs_path, "wb") as f:
-        f.write(buf.read())
+    # file is already saved locally by inference.py — just upload it
+    if not os.path.exists(local_path):
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as t:
+            local_path = t.name
+        with open(local_path, "wb") as f:
+            pickle.dump(results, f)
+    subprocess.run(["gcloud", "storage", "cp", local_path, gcs_path], check=True)
     print(f"Saved results to {gcs_path}")
 
 
