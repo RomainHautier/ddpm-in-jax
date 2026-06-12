@@ -182,9 +182,13 @@ class DDPM:
         keys = jax.random.split(key, T + 1)
 
         if x_g is not None:
+            batched = x_g.ndim == 4
+            if not batched:
+                x_g = x_g[None]  # (H, W, C) -> (1, H, W, C)
             eps = jax.random.normal(init_key, x_g.shape)
             xT = jnp.sqrt(alpha_bar[t_start])*x_g + jnp.sqrt(1- alpha_bar[t_start])*eps
         else:
+            batched = False
             xT = jax.random.normal(keys[0], dims)
             xT = xT[None]  # (H, W, C) -> (1, H, W, C): model expects a batch dimension
 
@@ -205,4 +209,6 @@ class DDPM:
             z = jax.random.normal(keys[t], xT.shape) if t > 1 else jnp.zeros(xT.shape)
             xt_bwd = jit_denoise_step(params, xT, t, z)
             xT = xt_bwd
-        return xT if x_g is not None else xt_bwd[0]  # (1, H, W, C) -> (H, W, C)
+        if x_g is not None:
+            return xT if batched else xT[0]  # strip batch dim for single-image callers
+        return xt_bwd[0]  # unconditional: (1, H, W, C) -> (H, W, C)

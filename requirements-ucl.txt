@@ -1,0 +1,23 @@
+# Dependencies for UCL GPU cluster (CentOS 7, GCC 4.8.5, no AVX, glibc 2.17).
+#
+# Install order matters — numpy and ml-dtypes must be pre-built wheels
+# before jax, otherwise pip tries to build numpy 2.x which requires GCC >= 9.3.
+#
+#   pip install --only-binary=:all: numpy==1.26.4 ml-dtypes==0.3.2
+#   pip install --only-binary=:all: jax==0.4.30 jaxlib==0.4.30
+#   conda install -c conda-forge scipy scikit-learn libstdcxx-ng
+#
+# Do NOT use requirements.txt (Colab/GPU dump) or requirements-tpu.txt on this machine.
+# Do NOT upgrade jax/jaxlib without testing — newer jaxlib requires AVX.
+
+numpy==1.26.4
+ml-dtypes==0.3.2
+jax==0.4.30
+jaxlib==0.4.30
+flax==0.6.11
+optax==0.2.3
+matplotlib==3.9.0
+gcsfs==2024.6.0
+PyYAML==6.0.1
+tqdm==4.66.4
+tensorflow-cpu==2.17.0
