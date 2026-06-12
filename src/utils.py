@@ -136,9 +136,12 @@ def save_checkpoint(params, opt_state, epoch, cfg):
 def load_checkpoint(path):
     import flax.serialization
     if path.startswith("gs://"):
-        fs = get_fs()
-        with fs.open(path, "rb") as f:
+        import subprocess, tempfile
+        tmp = tempfile.mktemp(suffix=".pkl")
+        subprocess.run(["gcloud", "storage", "cp", path, tmp], check=True)
+        with open(tmp, "rb") as f:
             ckpt = pickle.load(f)
+        os.unlink(tmp)
     else:
         with open(path, "rb") as f:
             ckpt = pickle.load(f)
