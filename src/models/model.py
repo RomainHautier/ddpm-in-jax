@@ -166,11 +166,12 @@ class DDPM:
         )
 
     def sample(self, params, dims, key, x_g=None, t_start=None):
-        
-        if t_start:
+        T_max = self.config["diffusion"]["T"]
+        if t_start is not None:
+            assert t_start <= T_max, f"t_start={t_start} exceeds T={T_max}"
             T = t_start
         else:
-            T = self.config["diffusion"]["T"]
+            T = T_max
 
         alpha_bar = self.alpha_bar
         beta_schedule = self.beta_schedule

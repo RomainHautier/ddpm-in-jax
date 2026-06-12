@@ -71,7 +71,7 @@ def run_inference(cfgs):
     
     filename = f"plain_ddpm_reconstructions_baseline.pkl"
 
-    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "base_results")
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "monitoring", "sparse_reconstructions")
     os.makedirs(save_dir, exist_ok=True)
     local_path = os.path.join(save_dir, filename)
     with open(local_path, "wb") as f:
