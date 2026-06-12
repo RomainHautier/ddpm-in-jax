@@ -165,6 +165,7 @@ class DDPM:
             + jnp.sqrt(1 - alpha[t])[:, None, None, None] * eps
         )
 
+
     def sample(self, params, dims, key, x_g=None, t_start=None):
         T_max = self.config["diffusion"]["T"]
         if t_start is not None:
@@ -181,22 +182,27 @@ class DDPM:
         keys = jax.random.split(key, T + 1)
 
         if x_g is not None:
-            eps = jax.random.normal(init_key, dims)
+            eps = jax.random.normal(init_key, x_g.shape)
             xT = jnp.sqrt(alpha_bar[t_start])*x_g + jnp.sqrt(1- alpha_bar[t_start])*eps
         else:
             xT = jax.random.normal(keys[0], dims)
+            xT = xT[None]  # (H, W, C) -> (1, H, W, C): model expects a batch dimension
 
-        xT = xT[None]  # (H, W, C) -> (1, H, W, C): model expects a batch dimension
-
-        for t in range(T, 0, -1):
-            if t % 10 == 0 or t == T:
-                print(f"    denoising t={t}/{T}", flush=True)
-            z = jax.random.normal(keys[t], xT.shape) if t > 1 else 0
+        @jax.jit
+        def jit_denoise_step(params, xT, t, z):
             eps_pred = model.apply({"params": params}, xT, jnp.array([t]), train=False)
             alpha_bar_t = alpha_bar[t]
             alpha_t = 1 - beta_schedule[t]
             xt_bwd = (1 / jnp.sqrt(alpha_t)) * (
                 xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred
             ) + jnp.sqrt(beta_schedule[t]) * z
+
+            return xt_bwd
+
+        for t in range(T, 0, -1):
+            if t % 10 == 0 or t == T:
+                print(f"    denoising t={t}/{T}", flush=True)
+            z = jax.random.normal(keys[t], xT.shape) if t > 1 else jnp.zeros(xT.shape)
+            xt_bwd = jit_denoise_step(params, xT, t, z)
             xT = xt_bwd
-        return xt_bwd[0]  # (1, H, W, C) -> (H, W, C)
+        return xT if x_g is not None else xt_bwd[0]  # (1, H, W, C) -> (H, W, C)

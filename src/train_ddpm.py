@@ -44,9 +44,14 @@ def make_tf_ds(samples, batch_size, shuffle=True):
     return ds
 
 
-def load_dataset(cfg, max_test_samples=None):
+def load_dataset(cfg, max_test_samples=None, n_devices=None):
     data_path = cfg["data"]["data_path"]
-    batch_size = 1 if max_test_samples else cfg["training"]["batch_size"]
+    if max_test_samples is not None:
+        batch_size = 1
+    elif n_devices is not None:
+        batch_size = n_devices
+    else:
+        cfg["training"]["batch_size"]
     n_train_seqs = cfg["data"]["n_train_seqs"]  # 32 (80%)
     n_val_seqs   = cfg["data"]["n_val_seqs"]    # 4  (10%)
     n_test_seqs  = cfg["data"]["n_test_seqs"]   # 4  (10%)
