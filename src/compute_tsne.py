@@ -171,7 +171,7 @@ try:
 except ImportError:
     from sklearn.manifold import TSNE
     tsne = TSNE(n_components=2, perplexity=args.perplexity,
-                n_iter=args.n_iter, random_state=args.seed,
+                max_iter=args.n_iter, random_state=args.seed,
                 init="pca", verbose=1)
     embedded = tsne.fit_transform(reduced)
     print("  used sklearn TSNE (CPU)", flush=True)
