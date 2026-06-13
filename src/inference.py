@@ -29,7 +29,7 @@ def run_inference(cfgs):
 
     assert K == len(S), "K and S must have the same length in inference_config.yaml"
 
-    _, _, test_ds, mean, std = load_dataset(cfgs[0])
+    _, _, test_ds, mean, std = load_dataset(cfgs[0], n_devices=1)
     test_ds = test_ds.shuffle(buffer_size=10000, seed=cfgs[1]["inference_seed"], reshuffle_each_iteration=False).take(n_test_samples)
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
