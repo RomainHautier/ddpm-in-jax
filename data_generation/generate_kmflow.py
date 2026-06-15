@@ -21,10 +21,21 @@ Requires PyTorch (GPU strongly recommended). It will NOT run on the JAX/TPU VM.
 Output: a .npy of shape (n_samples, record_steps, res, res), float32 — same layout
 as `kf_2d_re1000_256_40seed.npy`.
 
-Example (reproduce the Re=1000 setup, 40 trajectories, 256^2, 320 frames):
+IMPORTANT — the reference kf_2d data is recorded in STATISTICALLY STEADY STATE, not
+from t=0. Evidence: kf_2d frame-0 already has the k=4 forcing enstrophy peak and std~4.6
+(= the equilibrated value), nothing like a smooth GRF (std~1.5). So you MUST spin up long
+enough to reach steady state (the drag timescale is 1/0.1 = 10 time units; use ~40, as in
+Kochkov et al.) BEFORE recording. The GRF initial condition is only a seed — its amplitude
+is forgotten after spin-up. The reference is also a 2048^2 DNS downsampled 8x to 256^2.
+
+Exact-reproduction recipe (heavy — needs a large GPU; ~40 traj at 2048^2):
+    python generate_kmflow.py --re 1000 --n-samples 40 --res 2048 --downsample-to 256 \
+        --record-steps 320 --record-dt 0.03125 --dt 1e-4 --spinup 40.0 \
+        --seed 0 --out kf_2d_re1000_256_40seed_REGEN.npy
+
+Cheaper approximate run (native 256^2, under-resolved DNS but right statistics):
     python generate_kmflow.py --re 1000 --n-samples 40 --res 256 \
-        --record-steps 320 --record-dt 0.03125 --dt 1e-3 --spinup 4.0 \
-        --seed 0 --out kf_2d_re1000_256_40seed.npy
+        --record-steps 320 --record-dt 0.03125 --dt 1e-3 --spinup 40.0 --out kf_re1000_256.npy
 
 Change `--re` to simulate other Reynolds numbers (reduce `--dt` if it blows up).
 """
@@ -109,6 +120,20 @@ def navier_stokes_2d(w0, re, dt, n_steps, record_every, record_steps, spinup_ste
     return out[:, :rec]
 
 
+def spectral_downsample(data, out_n):
+    """Coarsen (..., N, N) fields to (..., out_n, out_n) by spectral truncation
+    (keep the lowest out_n wavenumbers), the standard way DNS fields are downsampled.
+    Preserves the resolved large-scale field values."""
+    n = data.shape[-1]
+    if out_n >= n:
+        return data
+    fh = np.fft.fftshift(np.fft.fft2(data, axes=(-2, -1)), axes=(-2, -1))
+    c, h = n // 2, out_n // 2
+    fh = fh[..., c - h : c + h, c - h : c + h]
+    out = np.fft.ifft2(np.fft.ifftshift(fh, axes=(-2, -1)), axes=(-2, -1)).real
+    return out * (out_n / n) ** 2  # rescale for the grid-size change
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--re", type=float, default=1000.0, help="Reynolds number")
@@ -117,7 +142,10 @@ def main():
     p.add_argument("--record-steps", type=int, default=320, help="frames recorded per trajectory")
     p.add_argument("--record-dt", type=float, default=1.0 / 32.0, help="time between recorded frames")
     p.add_argument("--dt", type=float, default=1e-3, help="integration timestep (reduce if unstable)")
-    p.add_argument("--spinup", type=float, default=4.0, help="time discarded before recording")
+    p.add_argument("--spinup", type=float, default=40.0,
+                   help="time integrated & discarded before recording (reach steady state; ~40)")
+    p.add_argument("--downsample-to", type=int, default=None,
+                   help="spectrally downsample recorded frames to this resolution (e.g. 256 from a 2048 DNS)")
     p.add_argument("--batch", type=int, default=8, help="trajectories integrated at once (GPU memory)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
@@ -150,7 +178,11 @@ def main():
         done += b
         print(f"  {done}/{args.n_samples} trajectories done", flush=True)
 
-    data = np.concatenate(all_traj, axis=0).astype(np.float32)
+    data = np.concatenate(all_traj, axis=0)
+    if args.downsample_to is not None:
+        print(f"  spectrally downsampling {data.shape[-1]} -> {args.downsample_to} ...", flush=True)
+        data = spectral_downsample(data.astype(np.float64), args.downsample_to)
+    data = data.astype(np.float32)
     np.save(args.out, data)
     print(
         f"Saved {args.out}  shape={data.shape}  mean={data.mean():.5f}  std={data.std():.5f}",

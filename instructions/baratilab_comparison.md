@@ -174,23 +174,49 @@ The real solver is Zongyi Li's FNO data generator
 https://github.com/scaomath/fourier_neural_operator/tree/master/data_generation/navier_stokes ),
 which uses the removed pre-1.8 `torch.rfft` API and a different forcing.
 
-**We provide a ready-to-run, modern-PyTorch reimplementation:** `data_generation/generate_kmflow.py`
-(in this repo). It is a pseudo-spectral (FFT + Crank-Nicolson) solver on `[0, 2*pi)^2` with:
-- Kolmogorov forcing `f = -4 cos(4 y)` **and** the `-0.1*omega` linear drag (folded into the implicit term),
-- Gaussian-random-field ICs matching `N(0, 7^(3/2)(-lap + 49 I)^(-5/2))` (`tau=7, alpha=2.5`),
-- tunable Reynolds number (`visc = 1/Re`), resolution, timestep, spinup, and frame count,
-- output `(n_samples, record_steps, res, res)` float32 — same layout as `kf_2d_re1000_256_40seed.npy`.
+### Confirmed generation parameters (from Shu et al. 2211.14680, Li et al. FNO/PINO, Kochkov 2102.01010)
+| Quantity | Value | Source |
+|---|---|---|
+| Equation | 2D vorticity NS, periodic `(0,2π)²` | Shu et al. (verbatim) |
+| Re / viscosity | 1000 / ν=1e-3 | Shu et al. |
+| Forcing | `f = −4cos(4x₂) − 0.1ω` (Kolmogorov + drag) | Shu et al.; Kochkov `curl(sin(4y)x̂)=−4cos(4y)` |
+| GRF IC | `N(0, 7^(3/2)(−Δ+49I)^(−5/2))` (τ=7, α=2.5) | Shu et al. |
+| **DNS grid** | **2048², downsampled 8× to 256²** | Shu et al. |
+| Sequences / frames | 40 seqs × 320 frames, Δt=1/32 s, T=10 s | Shu et al. |
+| Time scheme / dt | Crank–Nicolson (linear implicit) + explicit nonlinear; dt≈1e-4 | FNO code defaults |
+| Dealiasing | 2/3 rule | FNO code |
 
-Reproduce the Re=1000 set (validate: std should be ~4.78):
+### ⚠️ Critical correction — the data is recorded in STEADY STATE (with spin-up), not from t=0
+The papers don't state a spin-up, and `320×1/32=10s` led to an initial guess of "record from t=0".
+**That is wrong.** Measured directly from `kf_2d`: frame-0 already has the **k=4 forcing enstrophy peak**
+and **std 4.55** (≈ the equilibrated mid-trajectory std 4.64) — nothing like a smooth GRF (std~1.5).
+So a long **spin-up to statistical steady state is required before recording** (drag timescale 1/0.1=10 →
+use ~40, matching Kochkov's burn-in=40). The GRF IC is only a seed; its amplitude is forgotten after spin-up.
+
+**Our solver:** `data_generation/generate_kmflow.py` — pseudo-spectral (FFT + Crank–Nicolson) on `(0,2π)²`,
+Kolmogorov forcing + drag, GRF ICs, tunable `--re`, with `--spinup` (default 40) and `--downsample-to`
+(spectral truncation, verified to preserve large-scale std). Output `(n_samples, record_steps, res, res)`.
+
+Exact reproduction (heavy — 2048² DNS, large GPU):
 ```bash
-python data_generation/generate_kmflow.py --re 1000 --n-samples 40 --res 256 \
-    --record-steps 320 --record-dt 0.03125 --dt 1e-3 --spinup 4.0 --seed 0 \
+python data_generation/generate_kmflow.py --re 1000 --n-samples 40 --res 2048 --downsample-to 256 \
+    --record-steps 320 --record-dt 0.03125 --dt 1e-4 --spinup 40.0 --seed 0 \
     --out kf_2d_re1000_256_40seed_REGEN.npy
 ```
-Other Reynolds numbers — just change `--re` (drop `--dt` if it goes unstable at higher Re):
+Cheaper approximate (native 256², under-resolved DNS but right statistics):
 ```bash
-python data_generation/generate_kmflow.py --re 4000 --dt 5e-4 --out kf_2d_re4000_256.npy
+python data_generation/generate_kmflow.py --re 1000 --n-samples 40 --res 256 \
+    --record-steps 320 --record-dt 0.03125 --dt 1e-3 --spinup 40.0 --out kf_re1000_256.npy
 ```
+Other Reynolds numbers — change `--re` (reduce `--dt` if unstable at higher Re):
+```bash
+python data_generation/generate_kmflow.py --re 4000 --res 2048 --downsample-to 256 --dt 5e-5 --out kf_re4000.npy
+```
+
+### TPU-native alternative — `google/jax-cfd` (Kochkov)
+Pure JAX (runs on the TPU, no PyTorch/GPU): `jax_cfd.spectral.equations.ForcedNavierStokes2D`
+(k=4, drag=0.1) + `crank_nicolson_rk4`, CFL=0.5. Authoritative & validated, but archived (may need a
+jax-version-compatible env) and its default regime uses burn-in=40 — configure spin-up + record to match.
 **Validation:** `data_generation/validate_kmflow.py` (pure numpy/matplotlib — runs on the TPU VM, no GPU/torch)
 statistically compares a generated `.npy` against reference full-res data. It reports the std ratio and an
 energy-spectrum agreement metric, and plots vorticity PDF, energy & enstrophy spectra, and per-frame std
