@@ -154,7 +154,51 @@ Steps:
 
 ---
 
-## 6. Open TODOs to finalize before the GPU run
+## 6. Generating data at OTHER Reynolds numbers
+
+**The BaratiLab repo does NOT contain a data-generation solver** — it only downloads pre-computed
+data and ships a PDE *residual* + an FNO *neural network*. Do not confuse these:
+
+- **FNO `residual`** (`runners/rs256_guided_diffusion.py` → `voriticity_residual`): evaluates how far an
+  existing field is from satisfying the PDE (time derivative = finite difference over given frames).
+  It is a *checker* for physics-guidance, **not** a forward integrator. Re=1000 and forcing `-4cos(4y)`
+  are hardcoded.
+- **FNO `network`** (`models/diffusion_new.py` → `SpectralConv2d_fast`, `FNO2d`): a *learned* Fourier
+  Neural Operator used as a denoiser/surrogate inside the diffusion model. It is a trained network, not a
+  numerical solver — it cannot produce validated ground truth, and it was trained at Re=1000.
+- ⚠️ "Li et al." is cited for **two different things**: the FNO *architecture* (in `diffusion_new.py`) and
+  the pseudo-spectral *solver* that GENERATED the data (NOT in the repo). The solver is the one you need.
+
+The real solver is Zongyi Li's FNO data generator
+(`data_generation/navier_stokes/ns_2d.py` + `random_fields.py`, mirror:
+https://github.com/scaomath/fourier_neural_operator/tree/master/data_generation/navier_stokes ),
+which uses the removed pre-1.8 `torch.rfft` API and a different forcing.
+
+**We provide a ready-to-run, modern-PyTorch reimplementation:** `data_generation/generate_kmflow.py`
+(in this repo). It is a pseudo-spectral (FFT + Crank-Nicolson) solver on `[0, 2*pi)^2` with:
+- Kolmogorov forcing `f = -4 cos(4 y)` **and** the `-0.1*omega` linear drag (folded into the implicit term),
+- Gaussian-random-field ICs matching `N(0, 7^(3/2)(-lap + 49 I)^(-5/2))` (`tau=7, alpha=2.5`),
+- tunable Reynolds number (`visc = 1/Re`), resolution, timestep, spinup, and frame count,
+- output `(n_samples, record_steps, res, res)` float32 — same layout as `kf_2d_re1000_256_40seed.npy`.
+
+Reproduce the Re=1000 set (validate: std should be ~4.78):
+```bash
+python data_generation/generate_kmflow.py --re 1000 --n-samples 40 --res 256 \
+    --record-steps 320 --record-dt 0.03125 --dt 1e-3 --spinup 4.0 --seed 0 \
+    --out kf_2d_re1000_256_40seed_REGEN.npy
+```
+Other Reynolds numbers — just change `--re` (drop `--dt` if it goes unstable at higher Re):
+```bash
+python data_generation/generate_kmflow.py --re 4000 --dt 5e-4 --out kf_2d_re4000_256.npy
+```
+**Caveats / validation:** Shu et al. never published their exact generation script, so `dt`, `T`, spinup,
+and the precise drag integration here are inferred from the FNO solver + their residual definition. Before
+trusting a regenerated set: (a) confirm the Re=1000 run's mean≈0 / std≈4.78 and qualitative vorticity match,
+(b) check energy-spectrum / statistics stability, (c) requires a GPU (slow on CPU; will not run on the TPU VM).
+
+---
+
+## 7. Open TODOs to finalize before the GPU run
 - [ ] Build/ship `u3232_nearest` (nearest-fill of `u3232` via `idx_lst`) so inputs match — or verify the
       figshare npz already has the key.
 - [ ] Confirm the 300-epoch checkpoint's training normalization; fix our inference `std` (4.799 vs 5.0157) if needed.
