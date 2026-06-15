@@ -191,10 +191,22 @@ Other Reynolds numbers — just change `--re` (drop `--dt` if it goes unstable a
 ```bash
 python data_generation/generate_kmflow.py --re 4000 --dt 5e-4 --out kf_2d_re4000_256.npy
 ```
-**Caveats / validation:** Shu et al. never published their exact generation script, so `dt`, `T`, spinup,
-and the precise drag integration here are inferred from the FNO solver + their residual definition. Before
-trusting a regenerated set: (a) confirm the Re=1000 run's mean≈0 / std≈4.78 and qualitative vorticity match,
-(b) check energy-spectrum / statistics stability, (c) requires a GPU (slow on CPU; will not run on the TPU VM).
+**Validation:** `data_generation/validate_kmflow.py` (pure numpy/matplotlib — runs on the TPU VM, no GPU/torch)
+statistically compares a generated `.npy` against reference full-res data. It reports the std ratio and an
+energy-spectrum agreement metric, and plots vorticity PDF, energy & enstrophy spectra, and per-frame std
+(stationarity). Generated trajectories use random ICs so they never match frame-by-frame — only statistics do.
+```bash
+python data_generation/validate_kmflow.py \
+    --generated kf_2d_re1000_256_40seed_REGEN.npy \
+    --reference flow-data/kf_2d_re1000_256_40seed.npy \
+    --out monitoring/validation_re1000.png
+```
+Targets for a good Re=1000 regen: **std ratio ≈ 1.0**, **energy-spectrum |log10 ratio| < ~0.2**, an
+**enstrophy peak at k=4** (the forcing wavenumber), and an overlapping vorticity PDF.
+
+**Caveats:** Shu et al. never published their exact generation script, so `dt`, `T`, spinup, and the precise
+drag integration here are inferred from the FNO solver + their residual definition — the Re=1000 validation
+above is how you confirm those choices. Generation requires a GPU (slow on CPU; will not run on the TPU VM).
 
 ---
 
