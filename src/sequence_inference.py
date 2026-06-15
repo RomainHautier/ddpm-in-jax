@@ -173,7 +173,9 @@ def run_sequence_inference(cfgs, max_frames=None):
     # split, matching train_ddpm.load_dataset); else the single seq_idx.
     d = cfgs[0]["data"]
     total_seqs = d["n_train_seqs"] + d["n_val_seqs"] + d["n_test_seqs"]
-    if sd.get("test_set", False):
+    if sd.get("seq_idxs") is not None:
+        seq_idxs = list(sd["seq_idxs"])            # explicit list (e.g. simulated seqs [0, 1])
+    elif sd.get("test_set", False):
         n_test = d["n_test_seqs"]
         seq_idxs = list(range(total_seqs - n_test, total_seqs))
     else:
@@ -217,7 +219,7 @@ def run_sequence_inference(cfgs, max_frames=None):
             },
             "frames": frames,
         }
-        filename = f"sequence_reconstruction_seq{seq_idx}.pkl"
+        filename = f"sequence_reconstruction_{sd.get('out_tag', '')}seq{seq_idx}.pkl"
         local_path = os.path.join(save_dir, filename)
         with open(local_path, "wb") as f:
             pickle.dump(results, f)

@@ -21,8 +21,8 @@ sequence_diffusion:
   # Model input = data.data_path (the npz, already-noised samples).
   # MSE ground truth = the clean kf_2d dataset (frame-aligned with the npz).
   gt_data_path: "gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy"
-  mean: 0.0            # model normalization (training-set stats)
-  std: 5.0157
+  mean: 0.0            # model normalization = kf_2d first-32 train split (new 32/4/4 split)
+  std: 4.7988          # corrected from 5.0157; checkpoint (06-11) was trained with the new split
   store_iterations: false   # if true, keep every K-iteration output (large pickle)
 
 
