@@ -1,5 +1,5 @@
 plain_diffusion:
-  n_samples: 10
+  n_samples: 100
   S: [10, 50, 100, 200, 400, 600, 800]
   checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
 
@@ -8,6 +8,22 @@ sparse_diffusion:
   K: 3
   S: [150, 100, 50]
   checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
+
+# Full-sequence inference: reconstruct every (3-frame triplet) frame of one
+# sequence by running the K-step / S-step diffusion refinement on each.
+sequence_diffusion:
+  test_set: true       # reconstruct the last n_test_seqs sequences (the test split)
+  seq_idx: -1          # used only when test_set is false (-1 = last / 40th)
+  batch_size: 16       # frames per step, sharded across chips (must be divisible by n_devices)
+  K: 3
+  S: [150, 100, 50]
+  checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
+  # Model input = data.data_path (the npz, already-noised samples).
+  # MSE ground truth = the clean kf_2d dataset (frame-aligned with the npz).
+  gt_data_path: "gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy"
+  mean: 0.0            # model normalization (training-set stats)
+  std: 5.0157
+  store_iterations: false   # if true, keep every K-iteration output (large pickle)
 
 
 nn_fill:

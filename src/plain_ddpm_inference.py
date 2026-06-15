@@ -54,12 +54,13 @@ def run_inference(cfgs):
     for im_idx, batch in enumerate(test_ds):
         if im_idx * n_devices >= n_test_samples:
             break
-        print(f"\n[Image {im_idx + 1}/{n_test_samples}]", flush=True)
         
+        
+
         ims = jax.device_put(jnp.array(batch), data_sharding)
 
         actual_B = ims.shape[0]
-
+        print(f"\n[Batch {im_idx + 1} — images {im_idx * n_devices}–{im_idx * n_devices + actual_B - 1}]", flush=True)
         batch_entries = []
         for b in range(actual_B):
             global_idx = im_idx * n_devices + b
