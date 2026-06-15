@@ -213,10 +213,35 @@ Other Reynolds numbers — change `--re` (reduce `--dt` if unstable at higher Re
 python data_generation/generate_kmflow.py --re 4000 --res 2048 --downsample-to 256 --dt 5e-5 --out kf_re4000.npy
 ```
 
-### TPU-native alternative — `google/jax-cfd` (Kochkov)
-Pure JAX (runs on the TPU, no PyTorch/GPU): `jax_cfd.spectral.equations.ForcedNavierStokes2D`
-(k=4, drag=0.1) + `crank_nicolson_rk4`, CFL=0.5. Authoritative & validated, but archived (may need a
-jax-version-compatible env) and its default regime uses burn-in=40 — configure spin-up + record to match.
+### ✅ RECOMMENDED generator — `data_generation/generate_kmflow_jaxcfd.py` (jax-cfd, TPU-native)
+Wraps Kochkov's **`google/jax-cfd`** spectral solver (`ForcedNavierStokes2D`: k=4 forcing + drag 0.1,
+`crank_nicolson_rk4`, CFL=0.5) — the authoritative, validated Kolmogorov implementation. Pure JAX, so it
+runs on the **TPU** (no PyTorch/GPU) and is far faster than the hand-rolled solver. It spins up to steady
+state, records 320 frames at dt=1/32, and **spectrally downsamples to 256² on-device**.
+
+**Validated** (512² DNS → 256², spin-up 40) against `kf_2d`: **std ratio 0.975**, **energy-spectrum
+|log10 ratio| 0.051**, k=4 enstrophy peak and vorticity PDF matching. So this is the path to use.
+
+Env (separate from the training venv to avoid jax-version clashes):
+```bash
+python3 -m venv ~/venv-jaxcfd && source ~/venv-jaxcfd/bin/activate
+pip install jax-cfd && pip install "jax[tpu]==0.10.1"
+```
+Run (practical 1024²→256², ~16 min/seq on TPU; bump `--dns-res 2048` for true exact but ~hours/seq):
+```bash
+python data_generation/generate_kmflow_jaxcfd.py --re 1000 --n-samples 40 \
+    --dns-res 1024 --out-res 256 --spinup-time 40 --record-frames 320 --record-dt 0.03125 \
+    --seed 0 --out kf_re1000_256_jaxcfd.npy
+```
+Other Reynolds numbers: change `--re` (the IC `--peak-wavenumber 4` and forcing stay fixed).
+
+| DNS res | cost (40 seqs, TPU) | fidelity to kf_2d (2048²) |
+|---|---|---|
+| 512²  | ~80 min  | std ratio 0.975, spec 0.051 (validated) |
+| 1024² | ~10 hr   | closer (more resolved small scales) |
+| 2048² | multi-day | exact match (reference resolution) |
+
+(The PyTorch `generate_kmflow.py` above remains as a portable/GPU reference, but jax-cfd is preferred on the TPU.)
 **Validation:** `data_generation/validate_kmflow.py` (pure numpy/matplotlib — runs on the TPU VM, no GPU/torch)
 statistically compares a generated `.npy` against reference full-res data. It reports the std ratio and an
 energy-spectrum agreement metric, and plots vorticity PDF, energy & enstrophy spectra, and per-frame std
