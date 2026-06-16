@@ -30,6 +30,21 @@ def load_sequence(path, seq_idx):
     return np.asarray(arr[seq_idx])
 
 
+def sparse_nnfill_degrade(seq, seq_idx, npz_path="flow-data/kmflow_sampled_data_irregnew.npz"):
+    """BaratiLab-style degradation of a clean (n_frames, H, W) sequence: keep the 1024
+    sampled pixels (npz `idx_lst` mask for this sequence) and nearest-neighbour-fill the
+    rest. Reproduces how `kmflow_sampled_data_irregnew` was built (verified)."""
+    from scipy.ndimage import distance_transform_edt
+
+    idx = np.load(npz_path)["idx_lst"][seq_idx]
+    H, W = seq.shape[-2], seq.shape[-1]
+    mask = np.zeros(H * W, bool)
+    mask[idx] = True
+    mask = mask.reshape(H, W)
+    _, ind = distance_transform_edt(~mask, return_indices=True)
+    return np.stack([f[ind[0], ind[1]] for f in seq])
+
+
 def build_triplets(seq, mean, std):
     """Normalize with the model's training stats and stack 3 consecutive
     frames as channels -> (n_frames - 2, H, W, 3), matching train_ddpm.build_samples."""
@@ -83,11 +98,17 @@ def reconstruct_sequence(cfgs, sampler, params, seq_idx, B, data_sharding, base_
     K, S = sd["K"], sd["S"]
     mean, std = sd["mean"], sd["std"]
     store_iterations = sd.get("store_iterations", False)
-    input_path = cfgs[0]["data"]["data_path"]
     gt_path = sd["gt_data_path"]
 
-    input_triplets = build_triplets(load_sequence(input_path, seq_idx), mean, std)
-    gt_triplets = build_triplets(load_sequence(gt_path, seq_idx), mean, std)
+    gt_seq = load_sequence(gt_path, seq_idx)
+    if sd.get("degrade_input") == "sparse_nnfill":
+        # generated/clean flow has no pre-made degraded file: build the BaratiLab input
+        # (1024-pt sparse sample at the npz masks + NN-fill) from the clean GT.
+        input_seq = sparse_nnfill_degrade(gt_seq, seq_idx)
+    else:
+        input_seq = load_sequence(cfgs[0]["data"]["data_path"], seq_idx)
+    input_triplets = build_triplets(input_seq, mean, std)
+    gt_triplets = build_triplets(gt_seq, mean, std)
     assert input_triplets.shape == gt_triplets.shape, (
         f"input/gt mismatch: {input_triplets.shape} vs {gt_triplets.shape}"
     )
@@ -166,8 +187,8 @@ def run_sequence_inference(cfgs, max_frames=None):
     sampler = make_batched_sampler(ddpm, data_sharding)
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
-    input_path = cfgs[0]["data"]["data_path"]
     gt_path = sd["gt_data_path"]
+    input_path = "sparse_nnfill(gt)" if sd.get("degrade_input") == "sparse_nnfill" else cfgs[0]["data"]["data_path"]
 
     # Which sequences to process. test_set=True -> the last n_test_seqs (the test
     # split, matching train_ddpm.load_dataset); else the single seq_idx.
