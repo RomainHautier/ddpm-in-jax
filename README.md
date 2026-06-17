@@ -44,6 +44,10 @@ src/
   inference.py            # Sparse reconstruction inference (Task 1: LR, Task 2: sparse)
   plain_ddpm_inference.py # Baseline reconstruction from partially-noised GT
   utils.py                # GCS I/O, checkpointing, monitoring utilities
+viz/                      # Post-hoc visualisation/analysis scripts (not training/inference)
+  visualise_sequences.py      # animation + example frames + per-frame MSE from recon pkls
+  visualise_sparsification.py # original / sparse mask / NN-filled input panels
+  compute_tsne.py             # t-SNE embedding of GT vs reconstruction trajectories
 configs/
   config.yaml             # Model and training hyperparameters
   inference_config.yaml   # Inference settings (n_samples, S schedule, task)

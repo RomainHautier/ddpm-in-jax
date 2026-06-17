@@ -3,7 +3,7 @@ Compute t-SNE embedding over val+test GT frames and reconstruction trajectories.
 Saves a .pkl that the notebook loads — no need to re-run t-SNE every time.
 
 Usage (from repo root):
-    python monitoring/sparse_reconstructions/compute_tsne.py [--local-data PATH]
+    python -m viz.compute_tsne [--local-data PATH]
 
 GPU path : cuML (RAPIDS) is used when available — install via
                conda install -c rapidsai -c conda-forge cuml cuda-version=12
