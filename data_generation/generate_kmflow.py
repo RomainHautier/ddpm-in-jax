@@ -178,11 +178,7 @@ def main():
         done += b
         print(f"  {done}/{args.n_samples} trajectories done", flush=True)
 
-    data = np.concatenate(all_traj, axis=0)
-    if args.downsample_to is not None:
-        print(f"  spectrally downsampling {data.shape[-1]} -> {args.downsample_to} ...", flush=True)
-        data = spectral_downsample(data.astype(np.float64), args.downsample_to)
-    data = data.astype(np.float32)
+    data = np.concatenate(all_traj, axis=0).astype(np.float32)
     np.save(args.out, data)
     print(
         f"Saved {args.out}  shape={data.shape}  mean={data.mean():.5f}  std={data.std():.5f}",
