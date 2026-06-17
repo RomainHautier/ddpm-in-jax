@@ -5,7 +5,7 @@
 # the tpu-ubuntu2204-base image ships only 3.10), creates a venv, installs
 # TPU JAX + project deps, and verifies the 4 TPU chips are visible.
 #
-# Usage (on the VM):  bash ~/ddpm-jax/scripts/tpu_setup.sh
+# Usage (on the VM):  bash ~/ddpm-jax/tpu-setup/tpu_setup.sh
 # ---------------------------------------------------------------------------
 set -euo pipefail
 

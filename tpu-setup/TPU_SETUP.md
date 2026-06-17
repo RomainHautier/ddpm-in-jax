@@ -117,8 +117,8 @@ We used a tiny slice of the on-demand allocation.
 | `src/utils.py` | `GCS_BUCKET = "ddpm-thesis-rh"`; added `GCS_PROJECT`; `get_fs()` now passes the **project** (was incorrectly passing the bucket name) | Point at the real bucket; fix a latent gcsfs bug |
 | `configs/config.yaml` | `gcs_bucket` → `ddpm-thesis-rh`; `data_path` → `gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy` | Load training data from the bucket instead of a local path |
 | `requirements-tpu.txt` | **new** — lean TPU dependency list | The root `requirements.txt` is a full Colab/GPU dump that would clobber the TPU `jaxlib`. **Never `pip install -r requirements.txt` on the TPU.** |
-| `scripts/tpu_setup.sh` | **new** — one-shot VM setup | Clone repo, build venv, install TPU JAX + deps, verify chips |
-| `docs/TPU_SETUP.md` | **new** — this document | — |
+| `tpu-setup/tpu_setup.sh` | **new** — one-shot VM setup | Clone repo, build venv, install TPU JAX + deps, verify chips |
+| `tpu-setup/TPU_SETUP.md` | **new** — this document | — |
 
 ### Local machine (not in repo)
 - `~/.ssh/config` (WSL) — `Host ddpm-tpu` entry for terminal SSH from WSL.
@@ -178,7 +178,7 @@ gcloud alpha compute tpus tpu-vm ssh ddpm-v4-8 \
 
 Once connected (VSCode terminal or `ssh ddpm-tpu`):
 ```bash
-bash ~/ddpm-jax/scripts/tpu_setup.sh
+bash ~/ddpm-jax/tpu-setup/tpu_setup.sh
 ```
 This is idempotent and:
 1. Clones/updates the repo to `~/ddpm-jax`
