@@ -14,7 +14,7 @@ sparse_diffusion:
 sequence_diffusion:
   test_set: False      # reconstruct the last n_test_seqs sequences (the test split)
   seq_idx: -1          # used only when test_set is false (-1 = last / 40th)
-  seq_idxs: [0, 1]     # explicit sequence list (overrides test_set / seq_idx); null to disable
+  seq_idxs: all        # "all" = every sequence in the GT file; or an explicit list like [0, 1]
   out_tag: "re2000_"   # output filename tag -> sequence_reconstruction_re2000_seq{0,1}.pkl
   batch_size: 16       # frames per step, sharded across chips (must be divisible by n_devices)
   K: 3

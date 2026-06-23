@@ -30,6 +30,20 @@ def load_sequence(path, seq_idx):
     return np.asarray(arr[seq_idx])
 
 
+def num_sequences(path):
+    """Number of sequences (first dim) in a dataset, resolving gs:// to a local cache."""
+    local = path
+    if path.startswith("gs://") or not os.path.exists(path):
+        local = os.path.join("flow-data", os.path.basename(path))
+        if not os.path.exists(local):
+            import subprocess
+
+            os.makedirs("flow-data", exist_ok=True)
+            subprocess.run(["gcloud", "storage", "cp", path, local], check=True)
+    arr = np.load(local)["u3232"] if local.endswith(".npz") else np.load(local, mmap_mode="r")
+    return arr.shape[0]
+
+
 def sparse_nnfill_degrade(seq, seq_idx, npz_path="flow-data/kmflow_sampled_data_irregnew.npz"):
     """BaratiLab-style degradation of a clean (n_frames, H, W) sequence: keep the 1024
     sampled pixels (npz `idx_lst` mask for this sequence) and nearest-neighbour-fill the
@@ -174,6 +188,14 @@ def run_sequence_inference(cfgs, max_frames=None):
     B = sd.get("batch_size", 16)
     assert B % n_devices == 0, f"batch_size {B} must be divisible by {n_devices} devices"
 
+    # NOTE: the batched sampler (make_batched_sampler) implements DDPM denoising only.
+    # DDIM is not yet wired into the sharded sequence path, so we sample DDPM here
+    # regardless of diffusion.method. Warn so a 'ddim' config isn't silently ignored.
+    method = cfgs[0]["diffusion"].get("method", "ddpm").lower()
+    if method != "ddpm":
+        print(f"[warning] diffusion.method='{method}' but sequence inference only "
+              f"supports DDPM batched sampling; proceeding with DDPM.", flush=True)
+
     print(f"Loading checkpoint: {ckpt_path}", flush=True)
     ddpm = DDPM(cfgs[0])
     params, _, ckpt_epoch = load_checkpoint(ckpt_path)
@@ -195,7 +217,10 @@ def run_sequence_inference(cfgs, max_frames=None):
     d = cfgs[0]["data"]
     total_seqs = d["n_train_seqs"] + d["n_val_seqs"] + d["n_test_seqs"]
     if sd.get("seq_idxs") is not None:
-        seq_idxs = list(sd["seq_idxs"])            # explicit list (e.g. simulated seqs [0, 1])
+        if sd["seq_idxs"] == "all":
+            seq_idxs = list(range(num_sequences(gt_path)))   # every sequence in the GT file
+        else:
+            seq_idxs = list(sd["seq_idxs"])                   # explicit list (e.g. [0, 1])
     elif sd.get("test_set", False):
         n_test = d["n_test_seqs"]
         seq_idxs = list(range(total_seqs - n_test, total_seqs))

@@ -4,7 +4,7 @@ import numpy as np
 import yaml
 import os, pickle
 
-from src.models.model import DDPM
+from src.models.model import build_diffusion
 from src.train_ddpm import load_dataset
 from src.utils import load_checkpoint, mse
 from jax.sharding import NamedSharding, PartitionSpec as P
@@ -18,7 +18,7 @@ def run_inference(cfgs):
     # Load the model
     ckpt_path = cfgs[1]["plain_diffusion"]["checkpoint"]
     print(f"Loading checkpoint: {ckpt_path}", flush=True)
-    ddpm = DDPM(cfgs[0])
+    ddpm = build_diffusion(cfgs[0])
     params, _, ckpt_epoch = load_checkpoint(ckpt_path)
     print(f"Loaded checkpoint epoch {ckpt_epoch}", flush=True)
 
@@ -61,6 +61,7 @@ def run_inference(cfgs):
 
         actual_B = ims.shape[0]
         print(f"\n[Batch {im_idx + 1} — images {im_idx * n_devices}–{im_idx * n_devices + actual_B - 1}]", flush=True)
+        
         batch_entries = []
         for b in range(actual_B):
             global_idx = im_idx * n_devices + b

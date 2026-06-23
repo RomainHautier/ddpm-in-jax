@@ -7,10 +7,16 @@ model:
   dropout_p: 0.0
   freq_dim: 128
 
+
 diffusion:
+  method: ddim
   T: 1000
   beta_start: 0.0001
   beta_end: 0.02
+  
+  # ddim specific parameters
+  stride: 20
+  eta: 0
 
 training:
   batch_size: 32

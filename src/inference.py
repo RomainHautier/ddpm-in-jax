@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import yaml
 
-from src.models.model import DDPM
+from src.models.model import build_diffusion
 from src.train_ddpm import load_dataset
 from src.utils import load_checkpoint, sparsify_input, lr_input, save_results_to_gcs
 
@@ -19,7 +19,7 @@ def run_inference(cfgs):
     # Load the model
     ckpt_path = cfgs[1]["sparse_diffusion"]["checkpoint"]
     print(f"Loading checkpoint: {ckpt_path}", flush=True)
-    ddpm = DDPM(cfgs[0])
+    ddpm = build_diffusion(cfgs[0])
     params, _, ckpt_epoch = load_checkpoint(ckpt_path)
     print(f"Loaded checkpoint epoch {ckpt_epoch}", flush=True)
 
