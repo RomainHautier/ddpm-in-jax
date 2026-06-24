@@ -78,11 +78,20 @@ def build_operators(n, dtype):
 
 
 def forcing_field(forcing, xx, yy):
-    """Return (f, drag): the vorticity forcing field and the linear-drag coefficient."""
-    if forcing == "fno":
-        return 0.1 * (jnp.sin(xx + yy) + jnp.cos(xx + yy)), 0.0
-    if forcing == "kf":
+    """Return (f, drag): the vorticity forcing field and the linear-drag coefficient.
+
+    Calibrated against the downloaded 2D_NS_Re500.npy: its steady std is ~4.78 (identical to
+    kf_2d) and its vorticity spectrum peaks at k=1 with a strong k=4 component. That is k=4
+    Kolmogorov forcing at amplitude 4 with NO drag — removing the drag lets the 2D inverse
+    cascade condense energy at k=1. The original FNO low-k forcing (0.1(sin+cos)) gives std~1.5
+    and does NOT match, so it's kept only for reference.
+    """
+    if forcing == "mno":      # Zenodo 2D_NS Kolmogorov data: k=4 forcing, small drag (calibrated)
+        return -4.0 * jnp.cos(4.0 * yy), 0.01
+    if forcing == "kf":       # this repo's kf_2d training-data forcing: k=4 + linear drag 0.1
         return -4.0 * jnp.cos(4.0 * yy), 0.1
+    if forcing == "fno":      # original FNO low-k forcing — does NOT match the MNO NS data
+        return 0.1 * (jnp.sin(xx + yy) + jnp.cos(xx + yy)), 0.0
     raise ValueError(f"unknown forcing '{forcing}'")
 
 
@@ -122,14 +131,15 @@ def make_integrator(n, visc, dt, drag, f_h, dealias, kx, ky, ksq, ksq_nonzero,
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--forcing", choices=["fno", "kf"], default="fno")
+    p.add_argument("--forcing", choices=["mno", "kf", "fno"], default="mno",
+                   help="mno = Zenodo 2D_NS Kolmogorov (k=4, no drag); kf = kf_2d (k=4 + drag)")
     p.add_argument("--re", type=float, default=500.0, help="Reynolds number; nu = 1/Re")
     p.add_argument("--res", type=int, default=64, help="grid resolution (64 for Re40/500, 128 for Re5000)")
     p.add_argument("--n-samples", type=int, default=1000, help="number of trajectories")
     p.add_argument("--record-steps", type=int, default=501, help="frames per trajectory incl. IC at t=0")
-    p.add_argument("--dt", type=float, default=1e-3, help="integration timestep (CALIBRATE / reduce if unstable)")
-    p.add_argument("--record-dt", type=float, default=1.0, help="time between recorded frames (CALIBRATE)")
-    p.add_argument("--spinup-time", type=float, default=0.0, help="time discarded before recording (FNO records from t=0)")
+    p.add_argument("--dt", type=float, default=5e-4, help="integration timestep (reduce if unstable at high Re)")
+    p.add_argument("--record-dt", type=float, default=0.2, help="time between recorded frames (CALIBRATE vs download autocorr)")
+    p.add_argument("--spinup-time", type=float, default=0.0, help="time discarded before recording (MNO records from the IC at t=0)")
     p.add_argument("--batch", type=int, default=10, help="trajectories integrated at once (device memory)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--dtype", choices=["float64", "float32"], default="float64")
