@@ -45,6 +45,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jax.sharding import NamedSharding, PartitionSpec as P
 
 
 def gaussian_random_field(key, batch, n, tau=7.0, alpha=2.5):
@@ -95,9 +96,23 @@ def forcing_field(forcing, xx, yy):
     raise ValueError(f"unknown forcing '{forcing}'")
 
 
+def spectral_downsample_hat(w_h, dns, out):
+    """Truncate a full-fft2 vorticity field (..., dns, dns) to physical (..., out, out) by
+    keeping the lowest wavenumbers — the standard way a 2048^2 DNS frame is reduced to 256^2.
+    The (out/dns)^2 factor compensates the change in ifft2's 1/N^2 normalization."""
+    if out >= dns:
+        return jnp.fft.ifft2(w_h, axes=(-2, -1)).real
+    wsh = jnp.fft.fftshift(w_h, axes=(-2, -1))
+    c, h = dns // 2, out // 2
+    wsh = wsh[..., c - h : c + h, c - h : c + h]
+    return jnp.fft.ifft2(jnp.fft.ifftshift(wsh, axes=(-2, -1)), axes=(-2, -1)).real * (out / dns) ** 2
+
+
 def make_integrator(n, visc, dt, drag, f_h, dealias, kx, ky, ksq, ksq_nonzero,
-                    spinup_steps, record_steps, record_every):
-    """Build a jitted batched integrator: (B, n, n) IC -> (record_steps, B, n, n) frames."""
+                    spinup_steps, record_steps, record_every, out_res=None):
+    """Build a jitted batched integrator. DNS runs at resolution n; each recorded frame is
+    spectrally downsampled to out_res (<= n): (B, n, n) IC -> (record_steps, B, out, out)."""
+    out_res = out_res or n
     lin = visc * ksq + drag
     denom = 1.0 + 0.5 * dt * lin
     num_w = 1.0 - 0.5 * dt * lin
@@ -120,11 +135,11 @@ def make_integrator(n, visc, dt, drag, f_h, dealias, kx, ky, ksq, ksq_nonzero,
 
         def rec_body(w_h, _):
             w_h, _ = lax.scan(step, w_h, None, length=record_every)
-            return w_h, jnp.fft.ifft2(w_h, axes=(-2, -1)).real
+            return w_h, spectral_downsample_hat(w_h, n, out_res)
 
-        frame0 = jnp.fft.ifft2(w_h, axes=(-2, -1)).real          # frame 0 = IC (post-spinup)
+        frame0 = spectral_downsample_hat(w_h, n, out_res)        # frame 0 = IC (post-spinup)
         w_h, rest = lax.scan(rec_body, w_h, None, length=record_steps - 1)
-        return jnp.concatenate([frame0[None], rest], axis=0)     # (record_steps, B, n, n)
+        return jnp.concatenate([frame0[None], rest], axis=0)     # (record_steps, B, out, out)
 
     return integrate
 
@@ -134,7 +149,10 @@ def main():
     p.add_argument("--forcing", choices=["mno", "kf", "fno"], default="mno",
                    help="mno = Zenodo 2D_NS Kolmogorov (k=4, no drag); kf = kf_2d (k=4 + drag)")
     p.add_argument("--re", type=float, default=500.0, help="Reynolds number; nu = 1/Re")
-    p.add_argument("--res", type=int, default=64, help="grid resolution (64 for Re40/500, 128 for Re5000)")
+    p.add_argument("--drag", type=float, default=None, help="override the forcing's linear-drag coefficient")
+    p.add_argument("--res", type=int, default=64, help="grid resolution when not using DNS downsample")
+    p.add_argument("--dns-res", type=int, default=None, help="DNS resolution (e.g. 2048); defaults to --res")
+    p.add_argument("--out-res", type=int, default=None, help="output resolution after spectral downsample (e.g. 256); defaults to --res")
     p.add_argument("--n-samples", type=int, default=1000, help="number of trajectories")
     p.add_argument("--record-steps", type=int, default=501, help="frames per trajectory incl. IC at t=0")
     p.add_argument("--dt", type=float, default=5e-4, help="integration timestep (reduce if unstable at high Re)")
@@ -151,36 +169,47 @@ def main():
     dtype = jnp.float64 if args.dtype == "float64" else jnp.float32
     np_dtype = np.float64 if args.dtype == "float64" else np.float32
 
-    n = args.res
+    dns = args.dns_res or args.res          # DNS resolution
+    out_res = args.out_res or args.res      # recorded/output resolution after downsample
     visc = 1.0 / args.re
     record_every = max(1, round(args.record_dt / args.dt))
     spinup_steps = round(args.spinup_time / args.dt)
 
-    kx, ky, ksq, ksq_nonzero, dealias, xx, yy = build_operators(n, dtype)
+    kx, ky, ksq, ksq_nonzero, dealias, xx, yy = build_operators(dns, dtype)
     f, drag = forcing_field(args.forcing, xx, yy)
+    if args.drag is not None:
+        drag = args.drag
     f_h = jnp.fft.fft2(f)
     integrate = make_integrator(
-        n, visc, args.dt, drag, f_h, dealias, kx, ky, ksq, ksq_nonzero,
-        spinup_steps, args.record_steps, record_every,
+        dns, visc, args.dt, drag, f_h, dealias, kx, ky, ksq, ksq_nonzero,
+        spinup_steps, args.record_steps, record_every, out_res=out_res,
     )
 
     print(
-        f"forcing={args.forcing} Re={args.re} (nu={visc:.3e}) res={n} | dt={args.dt} "
+        f"forcing={args.forcing} Re={args.re} (nu={visc:.3e}) DNS={dns}->out={out_res} | dt={args.dt} "
         f"record_every={record_every} steps x {args.record_steps} frames | spinup={spinup_steps} "
         f"| n_traj={args.n_samples} dtype={args.dtype} | devices={jax.device_count()}",
         flush=True,
     )
 
+    # Data-parallel: shard the trajectory batch across all chips so each runs an independent
+    # DNS (the per-trajectory FFTs need no cross-device communication -> ~n_devices speedup).
+    n_devices = jax.device_count()
+    mesh = jax.make_mesh((n_devices,), ("batch",))
+    batch_shard = NamedSharding(mesh, P("batch"))
+
     # Write straight to a disk-backed array so a large dataset never has to fit in RAM.
     out = np.lib.format.open_memmap(
-        args.out, mode="w+", dtype=np_dtype, shape=(args.n_samples, args.record_steps, n, n)
+        args.out, mode="w+", dtype=np_dtype, shape=(args.n_samples, args.record_steps, out_res, out_res)
     )
     done = 0
     while done < args.n_samples:
         b = min(args.batch, args.n_samples - done)
         key = jax.random.PRNGKey(args.seed + done)            # distinct IC per trajectory block
-        w0 = gaussian_random_field(key, b, n).astype(dtype)
-        frames = np.asarray(integrate(w0))                    # (record_steps, b, n, n)
+        w0 = gaussian_random_field(key, b, dns).astype(dtype)
+        if b % n_devices == 0:                                # shard only when it divides evenly
+            w0 = jax.device_put(w0, batch_shard)
+        frames = np.asarray(integrate(w0))                    # (record_steps, b, out_res, out_res)
         out[done : done + b] = np.transpose(frames, (1, 0, 2, 3)).astype(np_dtype)
         done += b
         print(f"  {done}/{args.n_samples} trajectories  (last-batch std={frames.std():.3f})", flush=True)
