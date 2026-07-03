@@ -8,7 +8,7 @@ import yaml
 from jax.sharding import NamedSharding, PartitionSpec as P
 
 from src.models.model import DDPM
-from src.physics_guidance import make_dx_func
+from src.physics_guidance import make_dx_func, make_cond_func
 from src.utils import load_checkpoint, save_results_to_gcs
 
 
@@ -55,7 +55,7 @@ def build_triplets(seq, mean, std):
     return triplets  # (n, H, W, 3)
 
 
-def make_batched_sampler(ddpm, data_sharding, config, dx_func=None, guidance_t_max=None, log_every=10):
+def make_batched_sampler(ddpm, data_sharding, config, cond_func=None, dx_func=None, guidance_t_max=None, log_every=10):
     """Build a data-parallel batched DDPM sampler. A batch of frames is sharded
     along its leading axis, so the U-Net forward pass at each denoising step runs
     across every TPU chip at once (GSPMD). Mirrors DDPM.sample but for a batch.
@@ -111,17 +111,15 @@ def make_batched_sampler(ddpm, data_sharding, config, dx_func=None, guidance_t_m
                 z = jax.device_put(jax.random.normal(keys[t], xT.shape), data_sharding)
             else:
                 z = jax.device_put(jnp.zeros(xT.shape, xT.dtype), data_sharding)
-            # BaratiLab ddpm_steps: dx on the pre-step field, subtracted after the denoise step
+            # Two orthogonal physics signals, both read the pre-step field xT:
+            #   LEARNED: condRes = cond_func(xT) fed to the model (signal set by cond_signal:
+            #            gradient -> make_dx_func, field -> make_field_func). Applied INSIDE denoise_step.
+            #   LINEAR : dx = dx_func(xT) (always the residual gradient) subtracted AFTER the step
+            #            (BaratiLab ddpm_steps). They compose; either can be off.
+            condRes = cond_func(xT) if learned_guidance else None
+            dx = dx_func(xT) if linear_guidance > 0.0 else None
 
-            dx = None
-            if linear_guidance > 0.0 or learned_guidance:
-                dx = dx_func(xT)
-            
-            if learned_guidance:
-                xT = denoise_step(params, xT, t, z, condRes=dx)
-            else:
-                xT = denoise_step(params, xT, t, z, condRes=None)
-                
+            xT = denoise_step(params, xT, t, z, condRes=condRes)
 
             if linear_guidance > 0.0 and (guidance_t_max is None or t <= guidance_t_max ):
                 xT = xT - linear_guidance*dx
@@ -230,18 +228,30 @@ def run_sequence_inference(cfgs, max_frames=None):
     repl_sharding = NamedSharding(mesh, P())
     params = jax.device_put(params, repl_sharding)
 
-    # Optional sampling-time physics guidance (BaratiLab "Linear" variant). Build dx_func =
-    # lambda * grad_w(mean residual^2) / std with the TARGET flow's Re (guidance_re), so OOD
-    # guidance injects the correct physics; guidance_lambda is the step strength (0 = off).
-    #glam = float(sd.get("guidance_lambda", 0.0))
+    # Two orthogonal physics signals, built here and passed to the sampler:
+    #  - LEARNED (condRes): matches how the adapter was TRAINED — cond_signal 'gradient'
+    #    (make_dx_func, residual-min direction) or 'field' (make_field_func, raw residual field,
+    #    ENS-style). Evaluated at the conditioning Re (conditioning.inference.re). MUST match the
+    #    checkpoint's training signal or the model sees an input it never trained on.
+    #  - LINEAR (dx): BaratiLab "Linear" variant — dx = grad_w(mean residual^2)/std at guidance_re,
+    #    subtracted after each step, scaled by guidance_lambda (0 = off). Always the gradient.
+    n = cfgs[0]["data"]['image_size']
+    cond_func = None
     dx_func = None
-    
-    if learned_guidance or linear_guidance > 0.0:
-        n = cfgs[0]["data"]['image_size']
-        gre = float(cfgs[0]["conditioning"]['inference'].get("re", 1000.0))
-        dx_func = make_dx_func(n=n, re=gre, std=std, mean=mean)
 
-    sampler = make_batched_sampler(ddpm=ddpm, data_sharding=data_sharding, config=cfgs, dx_func=dx_func, guidance_t_max=sd.get("guidance_t_max"))
+    if learned_guidance:
+        cond_re = float(cfgs[0]["conditioning"]['inference'].get("re", 1000.0))
+        cond_signal = cfgs[0]['conditioning']['train'].get('cond_signal', 'gradient')
+        cond_func = make_cond_func(cond_signal, n=n, re=cond_re, std=std, mean=mean)
+        print(f"Learned guidance ON — cond_signal={cond_signal}, cond_re={cond_re}", flush=True)
+
+    if linear_guidance > 0.0:
+        gre = float(sd.get("guidance_re") or 1000.0)
+        dx_func = make_dx_func(n=n, re=gre, std=std, mean=mean)
+        print(f"Linear guidance ON — lambda={linear_guidance}, guidance_re={gre}", flush=True)
+
+    sampler = make_batched_sampler(ddpm=ddpm, data_sharding=data_sharding, config=cfgs,
+                                   cond_func=cond_func, dx_func=dx_func, guidance_t_max=sd.get("guidance_t_max"))
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
     gt_path = sd["gt_data_path"]
