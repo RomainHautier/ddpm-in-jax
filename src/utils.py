@@ -40,13 +40,15 @@ def load_npy_from_gcs(gcs_path: str) -> np.ndarray:
     return data
 
 
-def save_plot_to_gcs(fig, filename: str):
+def save_plot_to_gcs(fig, filename: str, subdir: str = ""):
     """
     Save a matplotlib figure to GCS monitoring folder.
     filename: e.g. 'loss_epoch_010.png'
+    subdir: optional run-specific subfolder under monitoring/ (e.g. 'conditioned_frozen_base')
+            so different runs don't overwrite each other's plots.
     """
     fs = get_fs()
-    gcs_path = f"{MONITORING_DIR}/{filename}"
+    gcs_path = f"{MONITORING_DIR}/{subdir}/{filename}" if subdir else f"{MONITORING_DIR}/{filename}"
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
     buf.seek(0)
@@ -70,7 +72,7 @@ def save_results_to_gcs(results, filename: str):
     print(f"Saved results to {gcs_path}")
 
 
-def save_final_loss_plot(train_losses, val_losses):
+def save_final_loss_plot(train_losses, val_losses, subdir: str = ""):
     """Save the final loss curve to GCS at end of training."""
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(train_losses, label="train", color="steelblue")
@@ -80,7 +82,7 @@ def save_final_loss_plot(train_losses, val_losses):
     ax.set_title("DDPM Training — Final")
     ax.legend()
     plt.tight_layout()
-    save_plot_to_gcs(fig, "loss_final.png")
+    save_plot_to_gcs(fig, "loss_final.png", subdir=subdir)
     plt.close(fig)
     print("Final loss plot saved to GCS.")
 
@@ -89,7 +91,7 @@ def save_final_loss_plot(train_losses, val_losses):
 # ---------------------------------------------------------------------------
 
 
-def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
+def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True, subdir: str = ""):
     """
     Plot train and val losses. Displays inline and optionally saves to GCS.
     Called every epoch from the training loop.
@@ -111,8 +113,23 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
     plt.tight_layout()
 
     if save_to_gcs and len(train_losses) > 0:
-        save_plot_to_gcs(fig, f"loss_epoch_{epoch:04d}.png")
+        save_plot_to_gcs(fig, f"loss_epoch_{epoch:04d}.png", subdir=subdir)
 
+    plt.close(fig)
+
+
+def save_residual_plot(res_cond, res_uncond, epoch, subdir: str = ""):
+    """Plot the PDE-residual probe (one-step x0, conditioned vs unconditioned) over epochs.
+    The noise-MSE stays flat on a frozen base; THIS is where the adapter's progress shows."""
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(res_uncond, label="unconditioned", color="gray")
+    ax.plot(res_cond, label="conditioned", color="crimson")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("PDE residual (one-step x0)")
+    ax.set_title(f"Conditioning residual probe — Epoch {epoch}")
+    ax.legend()
+    plt.tight_layout()
+    save_plot_to_gcs(fig, f"residual_epoch_{epoch:04d}.png", subdir=subdir)
     plt.close(fig)
 
 # ---------------------------------------------------------------------------
@@ -120,8 +137,10 @@ def plot_losses(train_losses, val_losses, epoch, save_to_gcs=True):
 # ---------------------------------------------------------------------------
 
 
-def save_checkpoint(params, opt_state, epoch, cfg):
+def save_checkpoint(params, opt_state, epoch, cfg, subdir: str = ""):
     ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
+    if subdir:
+        ckpt_dir = f"{ckpt_dir.rstrip('/')}/{subdir}"
     filename = f"ckpt_epoch_{epoch:04d}.pkl"
     payload = {"params": params, "opt_state": opt_state, "epoch": epoch}
 

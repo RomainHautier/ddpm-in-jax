@@ -1,0 +1,48 @@
+model:
+  ch: 64
+  ch_mult: [1, 1, 1, 2]
+  out_ch: 3
+  in_ch: 3
+  n_resnet_blocks: 1
+  dropout_p: 0.0
+  freq_dim: 128
+
+diffusion:
+  T: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  batch_size: 32
+  learning_rate: 0.0002    # same LR as the frozen run, to isolate the freeze on/off variable
+  n_epochs: 60
+  seed: 0
+
+conditioning:
+  train:
+    enabled: true
+    freeze_base: false       # NOTHING frozen — base UNet fine-tunes together with the cond_* adapter
+    proba: 0.1
+    re: 1000
+    pretrained_ckpt: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"  # start from the converged base
+
+  inference:
+    enabled: true
+    pretrained_ckpt: None
+    cond_strength: 0
+    re: 1000
+
+data:
+  image_size: 256
+  gcs_bucket: ddpm-thesis-rh
+  data_path: gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy
+  n_train_seqs: 32
+  n_val_seqs: 4
+  n_test_seqs: 4
+
+checkpointing:
+  save_every_n_epochs: 10
+  checkpoint_dir: gs://ddpm-thesis-rh/checkpoints/ddpm
+
+monitoring:
+  run_name: conditioned_full_finetune

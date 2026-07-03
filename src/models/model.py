@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import linen as nn
+from src.physics_guidance import make_cond_func
 
 
 def sinusoidal_time_embedding(t, dim, max_period=10000):
@@ -11,6 +12,15 @@ def sinusoidal_time_embedding(t, dim, max_period=10000):
     freqs = jnp.exp(-jnp.log(max_period) * jnp.arange(half) / half)
     args = t[:, None] * freqs[None, :]
     return jnp.concatenate([jnp.sin(args), jnp.cos(args)], axis=-1)
+
+def identity_combine_init(ch):
+    """Init for the cond_combine 1x1 conv (kernel-shape (1, 1, 2*ch, ch)):
+    idendity on the conv_in half, zero on the cond_combine half -> 
+    combine([h, cond]) == h at initialisation. """
+    def init(key, shape, dtype=jnp.float32):
+        k = jnp.zeros(shape, dtype)
+        return k.at[0,0,:ch, :].set(jnp.eye(ch, dtype=dtype))
+    return init
 
 
 class DDPMResnet(nn.Module):
@@ -137,6 +147,111 @@ class Unet(nn.Module):
         return nn.Conv(self.out_ch, kernel_size=(3, 3), padding="CIRCULAR")(h)
 
 
+class ConditionalUnet(nn.Module):
+    ch: int = 64
+    ch_mult: tuple = (1, 1, 1, 2)
+    out_ch: int = 3
+    in_ch: int = 3
+    n_resnet_blocks: int = 1
+    dropout_p: float = 0.0
+    freq_dim: int = 128
+
+    @nn.compact
+    def __call__(self, x, t, train=True, condRes = None):
+        ch = self.ch
+        temp_ch = ch * 4
+        time_embed = sinusoidal_time_embedding(t, dim=self.freq_dim)
+        time_embed = nn.Dense(temp_ch)(time_embed)
+        time_embed = jax.nn.silu(time_embed)
+        time_embed = nn.Dense(temp_ch)(time_embed)
+
+        
+
+        h = nn.Conv(ch, kernel_size=(3, 3), padding="CIRCULAR")(x)
+        
+        if condRes is not None:
+            cond_h = nn.Conv(ch, kernel_size=(1,1), strides=1, padding=0, name="cond_in")(condRes)
+            cond_h = jax.nn.gelu(cond_h)
+            cond_h = nn.Conv(self.ch, kernel_size=(3,3), strides=1, padding="CIRCULAR", name="cond_hidden")(cond_h)
+
+        else:
+            cond_h = jnp.zeros_like(h)
+
+        # Concatenating the conv input to the embedded residual information.
+        h_concat = jnp.concat([h, cond_h], axis = -1)
+        # Combining the input and residual embeddings to recover 3 channels.
+        # Kernel init is needed to make sure that upon init the original h is 
+        # return and the part of the kernel applied to the conditioning is init to 0.
+        h = nn.Conv(ch, kernel_size=(1,1), strides=1, padding=0, name="cond_combine",
+                                kernel_init=identity_combine_init(ch))(h_concat)
+
+        hs = [h]
+
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[0], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[1], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[2], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
+        h = SelfAttention(num_groups=8)(h)
+        h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[3], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[2], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[1], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        h = nn.GroupNorm(8)(h)
+        h = jax.nn.silu(h)
+        return nn.Conv(self.out_ch, kernel_size=(3, 3), padding="CIRCULAR")(h)
+
+
 class DDPM:
     def __init__(self, config: dict):
         self.config = config
@@ -146,17 +261,21 @@ class DDPM:
             diffusion["beta_start"], diffusion["beta_end"], diffusion["T"]
         )
         self.alpha_bar = jnp.cumprod(1 - self.beta_schedule)
-
+    
         model_cfg = config["model"]
-        self.unet = Unet(
-            ch=model_cfg["ch"],
-            ch_mult=tuple(model_cfg["ch_mult"]),
-            out_ch=model_cfg["out_ch"],
-            in_ch=model_cfg["in_ch"],
-            n_resnet_blocks=model_cfg["n_resnet_blocks"],
-            dropout_p=model_cfg["dropout_p"],
-            freq_dim=model_cfg["freq_dim"],
-        )
+        model_kwargs = {"ch": model_cfg["ch"],
+            "ch_mult": tuple(model_cfg["ch_mult"]),
+            "out_ch": model_cfg["out_ch"],
+            "in_ch": model_cfg["in_ch"],
+            "n_resnet_blocks": model_cfg["n_resnet_blocks"],
+            "dropout_p": model_cfg["dropout_p"],
+            "freq_dim": model_cfg["freq_dim"],}
+
+        if config['conditioning']['train']['enabled'] or config['conditioning']['inference']['enabled']:
+            self.unet = ConditionalUnet(**model_kwargs)
+        else:
+            self.unet = Unet(**model_kwargs)
+            print(f'Type of the model constructed with no cond {type(self.unet)}')
 
     def forward_process(self, ims, t, eps):
         alpha = self.alpha_bar
@@ -166,7 +285,7 @@ class DDPM:
         )
 
 
-    def sample(self, params, dims, key, x_g=None, t_start=None):
+    def sample(self, params, dims, key, std, mean, x_g=None, t_start=None):
         T_max = self.config["diffusion"]["T"]
         if t_start is not None:
             assert t_start <= T_max, f"t_start={t_start} exceeds T={T_max}"
@@ -177,6 +296,14 @@ class DDPM:
         alpha_bar = self.alpha_bar
         beta_schedule = self.beta_schedule
         model = self.unet
+
+        # Defining arguments needed for conditioning
+        if self.config['conditioning']['train']["enabled"]:
+            n = dims[0] if x_g is None else x_g.shape[-2]
+            re = self.config["conditioning"]['train']['re']
+            cond_strength = self.config["conditioning"]['inference']['cond_strength']
+            cond_signal = self.config['conditioning']['train'].get('cond_signal', 'gradient')
+            cond_func = make_cond_func(cond_signal, n=n, re=re, std=std, mean=mean)
         
         key, init_key = jax.random.split(key)
         keys = jax.random.split(key, T + 1)
@@ -194,7 +321,15 @@ class DDPM:
 
         @jax.jit
         def jit_denoise_step(params, xT, t, z):
-            eps_pred = model.apply({"params": params}, xT, jnp.array([t]), train=False)
+
+            if self.config['conditioning']['train']['enabled']:
+                condRes = cond_func(xT)
+                eps_pred_cond = model.apply({"params": params}, xT, jnp.array([t]), train=False, condRes=condRes)
+                eps_pred_uncond = model.apply({"params": params}, xT, jnp.array([t]), train=False)
+                eps_pred = (1 + cond_strength) * eps_pred_cond - cond_strength * eps_pred_uncond
+            else:
+                eps_pred = model.apply({"params": params}, xT, jnp.array([t]), train=False)
+            
             alpha_bar_t = alpha_bar[t]
             alpha_t = 1 - beta_schedule[t]
             xt_bwd = (1 / jnp.sqrt(alpha_t)) * (

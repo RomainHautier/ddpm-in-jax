@@ -1,5 +1,6 @@
 import os
 import pickle
+from functools import partial
 
 
 import jax
@@ -8,12 +9,13 @@ import numpy as np
 import optax
 import tensorflow as tf
 import yaml
+from flax.traverse_util import path_aware_map, flatten_dict
 from jax.sharding import NamedSharding, PartitionSpec as P
 from tqdm import tqdm
 
-from src.models.model import DDPM
-from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint
-
+from src.models.model import DDPM, ConditionalUnet
+from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint, load_checkpoint, save_residual_plot
+from src.physics_guidance import make_cond_func, make_residual_loss
 tf.config.experimental.set_visible_devices([], "GPU")
 
 
@@ -33,6 +35,51 @@ def build_samples(data, idx_list, mean, std):
             frame = np.stack([frame0, frame1, frame2], axis=-1)
             samples.append(frame)
     return np.array(samples, dtype=np.float32)
+
+
+def build_params(model, cfg, key):
+    key, init_key, dropout_key = jax.random.split(key, 3)
+    dummy_x = jnp.ones(
+        (1, cfg["data"]["image_size"], cfg["data"]["image_size"], cfg["model"]["in_ch"])
+    )
+    dummy_t = jnp.ones((1,), dtype=jnp.int32)
+    cond = cfg['conditioning']['train']['enabled']
+    cond_kw = {"condRes": jnp.ones_like(dummy_x)} if cond else {}
+    params = model.init({"params": init_key, "dropout": dropout_key}, dummy_x, dummy_t, **cond_kw)["params"]
+
+    if cond and cfg['conditioning']['train']["pretrained_ckpt"] is not None:
+        pretrained_params, _, _ = load_checkpoint(cfg['conditioning']['train']["pretrained_ckpt"])
+        # overwriting the dummy parameters by those of the pretrained model
+        init_flat = flatten_dict(params)
+        pretrained_flat = flatten_dict(pretrained_params)
+        for path, w in pretrained_flat.items():
+            assert path in init_flat
+            assert init_flat[path].shape  == w.shape
+
+        extra_modules = {path[0] for path in set(init_flat) - set(pretrained_flat)}
+        assert extra_modules <= {"cond_in", "cond_hidden", "cond_combine"}, f"unexpected extra modules {extra_modules}"
+        
+        
+        params = {**params, **pretrained_params}
+    
+    return params
+
+
+
+
+def params_opti_mapping(path, _leaf):
+    name = '/'.join(str(k) for k in path)
+    return "train" if "cond_" in name else "freeze"
+
+def build_optimizer(cfg, params):
+    lr = cfg['training']['learning_rate']
+    
+    if cfg['conditioning']['train']['enabled'] and cfg['conditioning']['train']['freeze_base']:
+        labels = path_aware_map(params_opti_mapping, params)
+
+        return optax.multi_transform({"train": optax.adam(lr), "freeze": optax.set_to_zero()}, labels)
+    
+    return optax.adam(learning_rate=cfg["training"]["learning_rate"])
 
 
 def make_tf_ds(samples, batch_size, shuffle=True):
@@ -87,7 +134,7 @@ def load_dataset(cfg, max_test_samples=None, n_devices=None):
 # ---------------------------------------------------------------------------
 
 
-def make_steps(model, optimizer, alpha_bar):
+def make_steps(model, optimizer, alpha_bar, cond_func):
     """Build jitted train/eval steps closing over the (static) model, optimizer
     and noise schedule. Batches are sharded across all devices, so JAX's GSPMD
     runs the forward/backward pass data-parallel over every TPU chip and
@@ -101,12 +148,14 @@ def make_steps(model, optimizer, alpha_bar):
         )
         return eps, noised
 
-    @jax.jit
-    def train_step(params, opt_state, ims, t, key):
+    @partial(jax.jit, static_argnums=(3,))
+    def train_step(params, opt_state, ims, condition, t, key):
         def loss_fn(params):
-            eps, noised = _noised(params, ims, t, key)
+            dropout_key, noise_key = jax.random.split(key)
+            eps, noised = _noised(params, ims, t, noise_key)
+            condRes = cond_func(noised) if condition else None
             eps_pred = model.apply(
-                {"params": params}, noised, t, train=True, rngs={"dropout": key}
+                {"params": params}, noised, t, train=True, rngs={"dropout": dropout_key}, condRes=condRes
             )
             return jnp.mean((eps - eps_pred) ** 2)
 
@@ -130,6 +179,7 @@ def make_steps(model, optimizer, alpha_bar):
 # ---------------------------------------------------------------------------
 
 
+
 def train(cfg):
     key = jax.random.PRNGKey(cfg["training"]["seed"])
 
@@ -140,18 +190,26 @@ def train(cfg):
     batch_size = cfg["training"]["batch_size"]
     n_epochs = cfg["training"]["n_epochs"]
     save_every = cfg["checkpointing"]["save_every_n_epochs"]
+    # run-specific monitoring subfolder so plots don't overwrite other runs'
+    run_name = cfg.get("monitoring", {}).get("run_name", "")
 
     # Initialise model
-    key, init_key, dropout_key = jax.random.split(key, 3)
-    dummy_x = jnp.ones(
-        (1, cfg["data"]["image_size"], cfg["data"]["image_size"], cfg["model"]["in_ch"])
-    )
-    dummy_t = jnp.ones((1,), dtype=jnp.int32)
-    params = model.init({"params": init_key, "dropout": dropout_key}, dummy_x, dummy_t)["params"]
+    params = build_params(model, cfg, key)
 
-    # Optimiser
-    optimizer = optax.adam(learning_rate=cfg["training"]["learning_rate"])
+
+    if cfg['conditioning']['train']['enabled']:
+        assert isinstance(ddpm.unet, ConditionalUnet)
+    
+        dum_x = jnp.ones((1, cfg['data']['image_size'], cfg['data']['image_size'], cfg['model']['in_ch']))
+        tt = jnp.ones((1,), dtype = jnp.int32)
+        out_none = model.apply({"params": params}, dum_x, tt, train=False, condRes = None)
+        out_cond = model.apply({"params": params}, dum_x, tt, train=False, condRes = jnp.ones_like(dum_x))
+        assert jnp.allclose(out_cond, out_none, atol = 1e-5)
+    
+    # Optimiser -> INSERT CONDITIONAL OPTI INIT
+    optimizer = build_optimizer(cfg, params)
     opt_state = optimizer.init(params)
+    
 
     # Data parallelism: replicate the model across every chip and shard each
     # batch along its leading (batch) axis. The loss is a single mean over the
@@ -174,24 +232,70 @@ def train(cfg):
         f"(global batch {batch_size}, {batch_size // n_devices} samples/device)."
     )
 
-    train_step, eval_step = make_steps(model, optimizer, alpha_bar)
+    
 
     # Data
     train_ds, val_ds, _, mean, std = load_dataset(cfg)
     print(f"Dataset loaded — mean={mean:.4f}, std={std:.4f}")
+    
+    # init function to calculate conditional physics guidance
+    n = cfg['data']['image_size']
+    re = cfg['conditioning']['train']['re']
+    cond_proba = cfg['conditioning']['train']['proba']
+    cond_signal = cfg['conditioning']['train'].get('cond_signal', 'gradient')
+    cond_func = make_cond_func(cond_signal, n=n, re=re, std=std, mean=mean)
+    
+    # Make steps
+    train_step, eval_step = make_steps(model, optimizer, alpha_bar, cond_func)
+
+    # Residual probe: one-step x0 PDE-residual (conditioned vs unconditioned) on a FIXED val
+    # batch each epoch. The noise-MSE stays flat on a frozen base, so this is what actually
+    # shows the adapter learning. Fixed noise/timestep => comparable across epochs.
+    enabled = cfg['conditioning']['train']['enabled']
+    res_cond_hist, res_uncond_hist = [], []
+    if enabled:
+        res_loss_fn = make_residual_loss(n=n, re=re, std=std, mean=mean)
+        t_res = 200
+        res_key = jax.random.PRNGKey(cfg["training"]["seed"] + 1)
+        fixed_val = jax.device_put(jnp.asarray(next(iter(val_ds)).numpy()), data_sharding)
+
+        @jax.jit
+        def residual_probe(params):
+            abar = alpha_bar[t_res]
+            eps = jax.random.normal(res_key, fixed_val.shape)
+            noised = jnp.sqrt(abar) * fixed_val + jnp.sqrt(1 - abar) * eps
+            tt = jnp.full((fixed_val.shape[0],), t_res)
+            x0hat = lambda ep: (noised - jnp.sqrt(1 - abar) * ep) / jnp.sqrt(abar)
+            eps_c = model.apply({"params": params}, noised, tt, train=False, condRes=cond_func(noised))
+            eps_u = model.apply({"params": params}, noised, tt, train=False)
+            return res_loss_fn(x0hat(eps_c)).mean(), res_loss_fn(x0hat(eps_u)).mean()
 
     train_losses, val_losses = [], []
 
     for epoch in tqdm(range(n_epochs), desc="Epochs"):
         # --- training ---
         epoch_train = []
+        counter = 0
+        params_saved = params
+
         for ims in train_ds:
             ims = jax.device_put(jnp.asarray(ims.numpy()), data_sharding)
             key, t_key, noise_key = jax.random.split(key, 3)
             t = jax.random.randint(t_key, (batch_size,), minval=0, maxval=T)
             t = jax.device_put(t, data_sharding)
-            params, opt_state, loss = train_step(params, opt_state, ims, t, noise_key)
+            # classifier-free dropout decided host-side: True (conditional) ~ 1 - proba
+            condition = bool(np.random.rand() >= cond_proba)
+            params, opt_state, loss = train_step(params, opt_state, ims, condition, t, noise_key)
             epoch_train.append(float(loss))
+            
+            counter += 1
+            if counter == 1 and cfg['conditioning']['train']['freeze_base']:
+                maxabs = lambda a, b: float(jnp.abs(a-b).max())
+                assert maxabs(params_saved["Conv_0"]["kernel"], params["Conv_0"]["kernel"]) == 0.0
+                assert maxabs(params_saved["cond_combine"]["kernel"], params["cond_combine"]["kernel"]) > 0.0
+
+
+            
 
         # --- validation ---
         epoch_val = []
@@ -208,12 +312,19 @@ def train(cfg):
 
         tqdm.write(f"Epoch {epoch:04d} — train: {train_losses[-1]:.4f}  val: {val_losses[-1]:.4f}")
 
-        plot_losses(train_losses, val_losses, epoch, save_to_gcs=True)
+        plot_losses(train_losses, val_losses, epoch, save_to_gcs=True, subdir=run_name)
+
+        if enabled:
+            r_c, r_u = residual_probe(params)
+            res_cond_hist.append(float(r_c))
+            res_uncond_hist.append(float(r_u))
+            save_residual_plot(res_cond_hist, res_uncond_hist, epoch, subdir=run_name)
+            tqdm.write(f"           residual  cond={res_cond_hist[-1]:.3e}  uncond={res_uncond_hist[-1]:.3e}")
 
         if (epoch + 1) % save_every == 0:
-            save_checkpoint(params, opt_state, epoch, cfg)
+            save_checkpoint(params, opt_state, epoch, cfg, subdir=run_name)
 
-    save_final_loss_plot(train_losses, val_losses)
+    save_final_loss_plot(train_losses, val_losses, subdir=run_name)
     return params, train_losses, val_losses
 
 
@@ -222,7 +333,10 @@ def train(cfg):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    with open("configs/config.yaml", "r") as f:
+    import sys
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "configs/config.yaml"
+    print(f"Loading config: {config_path}")
+    with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
 
     params, train_losses, val_losses = train(cfg)

@@ -1,0 +1,52 @@
+model:
+  ch: 64
+  ch_mult: [1, 1, 1, 2]
+  out_ch: 3
+  in_ch: 3
+  n_resnet_blocks: 1
+  dropout_p: 0.0
+  freq_dim: 128
+
+diffusion:
+  T: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  batch_size: 32
+  learning_rate: 0.0002
+  n_epochs: 60           # match the gradient frozen-60ep run for a clean head-to-head
+  seed: 0
+
+conditioning:
+  train:
+    enabled: true
+    freeze_base: true    # frozen base + cond_* adapter — same setup as the gradient adapter
+    cond_signal: field   # <-- ENS-style: feed the RAW residual field as condRes (vs 'gradient')
+    proba: 0.1
+    re: 1000
+    pretrained_ckpt: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
+
+  inference:
+    enabled: true
+    pretrained_ckpt: None
+    cond_strength: 0
+    re: 1000
+    # note: the conditioning signal is read from conditioning.train.cond_signal at inference too,
+    # so a field-trained adapter automatically samples with the field signal.
+
+data:
+  image_size: 256
+  gcs_bucket: ddpm-thesis-rh
+  data_path: gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy
+  n_train_seqs: 32
+  n_val_seqs: 4
+  n_test_seqs: 4
+
+checkpointing:
+  save_every_n_epochs: 10
+  checkpoint_dir: gs://ddpm-thesis-rh/checkpoints/ddpm
+
+monitoring:
+  # loss + residual plots -> gs://<bucket>/monitoring/conditioned_field_cond_60ep/
+  run_name: conditioned_field_cond_60ep
