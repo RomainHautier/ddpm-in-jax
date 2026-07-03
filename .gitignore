@@ -10,6 +10,11 @@ creds.txt
 *.pkl
 !checkpoints/ddpm/ckpt_epoch_0299.pkl
 *.npy
+*.npz
+
+# Result logs (kept out of git; live in base_results/ + GCS)
+base_results/**/*.log
+base_results/*.log
 
 # Python
 __pycache__/
