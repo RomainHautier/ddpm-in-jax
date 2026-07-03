@@ -8,6 +8,7 @@ import yaml
 from jax.sharding import NamedSharding, PartitionSpec as P
 
 from src.models.model import DDPM
+from src.physics_guidance import make_dx_func
 from src.utils import load_checkpoint, save_results_to_gcs
 
 
@@ -30,7 +31,7 @@ def load_sequence(path, seq_idx):
     return np.asarray(arr[seq_idx])
 
 
-def sparse_nnfill_degrade(seq, seq_idx, npz_path="flow-data/kmflow_sampled_data_irregnew.npz"):
+def sparse_nnfill_degrade(seq, seq_idx, npz_path="flow-data/kmflow_idx_lst.npz"):
     """BaratiLab-style degradation of a clean (n_frames, H, W) sequence: keep the 1024
     sampled pixels (npz `idx_lst` mask for this sequence) and nearest-neighbour-fill the
     rest. Reproduces how `kmflow_sampled_data_irregnew` was built (verified)."""
@@ -54,30 +55,55 @@ def build_triplets(seq, mean, std):
     return triplets  # (n, H, W, 3)
 
 
-def make_batched_sampler(ddpm, data_sharding):
+def make_batched_sampler(ddpm, data_sharding, config, dx_func=None, guidance_t_max=None, log_every=10):
     """Build a data-parallel batched DDPM sampler. A batch of frames is sharded
     along its leading axis, so the U-Net forward pass at each denoising step runs
-    across every TPU chip at once (GSPMD). Mirrors DDPM.sample but for a batch."""
+    across every TPU chip at once (GSPMD). Mirrors DDPM.sample but for a batch.
+
+    If dx_func is given, applies sampling-time physics guidance, faithfully replicating
+    BaratiLab's ddpm_steps: dx = dx_func(x) is computed on the field BEFORE the denoise
+    step and subtracted from the sample AFTER it (sample = mean + noise - dx). dx_func
+    bakes in lambda and Re (src.physics_guidance.make_dx_func). No retraining.
+
+    If a `probe` callable is passed to sample_batch, it is evaluated on the current field
+    every log_every steps (and at the first/last step); sample_batch then returns (xT, log)
+    with log a list of (t, probe(xT)). Use it to trace residual/MSE/spectrum vs denoising step
+    (works for the baseline dx_func=None too). probe is bound per chunk (e.g. to that chunk's GT)."""
     model = ddpm.unet
     alpha_bar = ddpm.alpha_bar
     beta = ddpm.beta_schedule
+    linear_guidance = config[1]['sequence_diffusion']['guidance_lambda']
+    learned_guidance = config[0]['conditioning']['inference']['enabled']
+
+    if learned_guidance:
+        cond_strength = config[0]['conditioning']['inference']['cond_strength']
+    else:
+        cond_strength = 0
 
     @jax.jit
-    def denoise_step(params, xT, t, z):
+    def denoise_step(params, xT, t, z, condRes=None):
         b = xT.shape[0]
+
         eps_pred = model.apply({"params": params}, xT, jnp.full((b,), t), train=False)
+
+        if condRes is not None:
+            eps_pred_cond = model.apply({"params": params}, xT, jnp.full((b,), t), train=False, condRes=condRes)
+            eps_pred = (1 + cond_strength)*(eps_pred_cond) - cond_strength*eps_pred
+        
         alpha_t = 1.0 - beta[t]
         abar_t = alpha_bar[t]
         return (1.0 / jnp.sqrt(alpha_t)) * (
             xT - (1.0 - alpha_t) / jnp.sqrt(1.0 - abar_t) * eps_pred
         ) + jnp.sqrt(beta[t]) * z
 
-    def sample_batch(params, x_g, key, t_start):
+    def sample_batch(params, x_g, key, t_start, probe=None):
         """x_g: (B, H, W, C) sharded along batch. Noise to level t_start, denoise back."""
         key, init_key = jax.random.split(key)
         keys = jax.random.split(key, t_start + 1)
         eps = jax.device_put(jax.random.normal(init_key, x_g.shape), data_sharding)
         xT = jnp.sqrt(alpha_bar[t_start]) * x_g + jnp.sqrt(1.0 - alpha_bar[t_start]) * eps
+        log = [] if probe is not None else None
+        
         for t in range(t_start, 0, -1):
             if t % 50 == 0 or t == t_start:
                 print(f"      denoising t={t}/{t_start}", flush=True)
@@ -85,8 +111,24 @@ def make_batched_sampler(ddpm, data_sharding):
                 z = jax.device_put(jax.random.normal(keys[t], xT.shape), data_sharding)
             else:
                 z = jax.device_put(jnp.zeros(xT.shape, xT.dtype), data_sharding)
-            xT = denoise_step(params, xT, t, z)
-        return xT
+            # BaratiLab ddpm_steps: dx on the pre-step field, subtracted after the denoise step
+
+            dx = None
+            if linear_guidance > 0.0 or learned_guidance:
+                dx = dx_func(xT)
+            
+            if learned_guidance:
+                xT = denoise_step(params, xT, t, z, condRes=dx)
+            else:
+                xT = denoise_step(params, xT, t, z, condRes=None)
+                
+
+            if linear_guidance > 0.0 and (guidance_t_max is None or t <= guidance_t_max ):
+                xT = xT - linear_guidance*dx
+            
+            if probe is not None and (t == t_start or t == 1 or t % log_every == 0):
+                log.append((t, probe(xT)))                     # metrics of the field after the step
+        return (xT, log) if probe is not None else xT
 
     return sample_batch
 
@@ -150,8 +192,8 @@ def reconstruct_sequence(cfgs, sampler, params, seq_idx, B, data_sharding, base_
     for f in range(n_frames):
         entry = {
             "frame_idx": f,
-            "input": input_triplets[f],
-            "ground_truth": gt_triplets[f],
+            # input/ground_truth are derivable from gt_path (gt = load_sequence; input =
+            # sparse_nnfill(gt)); drop them to keep pkls ~3x smaller (avoids filling the disk).
             "final": finals[f],
             "mse": float(mse_per[f]),
         }
@@ -166,6 +208,9 @@ def run_sequence_inference(cfgs, max_frames=None):
 
     sd = cfgs[1]["sequence_diffusion"]
     ckpt_path = sd["checkpoint"]
+    learned_guidance = cfgs[0]['conditioning']['inference']['enabled']
+    linear_guidance = sd.get('guidance_lambda', 0)
+
     K, S = sd["K"], sd["S"]
     mean, std = sd["mean"], sd["std"]
     assert K == len(S), "K and S must have the same length in sequence_diffusion"
@@ -184,7 +229,19 @@ def run_sequence_inference(cfgs, max_frames=None):
     data_sharding = NamedSharding(mesh, P("data"))
     repl_sharding = NamedSharding(mesh, P())
     params = jax.device_put(params, repl_sharding)
-    sampler = make_batched_sampler(ddpm, data_sharding)
+
+    # Optional sampling-time physics guidance (BaratiLab "Linear" variant). Build dx_func =
+    # lambda * grad_w(mean residual^2) / std with the TARGET flow's Re (guidance_re), so OOD
+    # guidance injects the correct physics; guidance_lambda is the step strength (0 = off).
+    #glam = float(sd.get("guidance_lambda", 0.0))
+    dx_func = None
+    
+    if learned_guidance or linear_guidance > 0.0:
+        n = cfgs[0]["data"]['image_size']
+        gre = float(cfgs[0]["conditioning"]['inference'].get("re", 1000.0))
+        dx_func = make_dx_func(n=n, re=gre, std=std, mean=mean)
+
+    sampler = make_batched_sampler(ddpm=ddpm, data_sharding=data_sharding, config=cfgs, dx_func=dx_func, guidance_t_max=sd.get("guidance_t_max"))
 
     base_key = jax.random.key(cfgs[1]["inference_seed"])
     gt_path = sd["gt_data_path"]

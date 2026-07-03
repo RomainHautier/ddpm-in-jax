@@ -76,7 +76,7 @@ def run_inference(cfgs):
         for s_idx, s in enumerate(S):
             noise_key = jax.random.fold_in(base_key, im_idx * len(S) + s_idx)
             print(f"(S={s} denoising steps)", flush=True)
-            x0 = ddpm.sample(params=params, dims=ims.shape, key=noise_key, x_g=ims, t_start=s)
+            x0 = ddpm.sample(params=params, dims=ims.shape, key=noise_key, x_g=ims, t_start=s, std=std, mean=mean)
             for b in range(actual_B):
                 mean_se, per_pixel_se = mse(ims[b], x0[b])
                 batch_entries[b]["denoising_timesteps"][s] = np.array(x0[b])

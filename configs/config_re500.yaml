@@ -1,0 +1,48 @@
+model:
+  ch: 64
+  ch_mult: [1, 1, 1, 2]
+  out_ch: 3
+  in_ch: 3
+  n_resnet_blocks: 1
+  dropout_p: 0.0
+  freq_dim: 128
+
+diffusion:
+  T: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  batch_size: 32
+  learning_rate: 0.0002
+  n_epochs: 30
+  seed: 0
+
+conditioning:
+  train:
+    enabled: true            # conditional adapter training on Re=500 data
+    freeze_base: true        # frozen Re=1000 base, only the cond_* adapter trains
+    proba: 0.1
+    re: 500                  # residual computed at the data's Reynolds number
+    pretrained_ckpt: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"  # frozen Re=1000 base
+
+  inference:
+    enabled: true
+    pretrained_ckpt: None
+    cond_strength: 0
+    re: 500                 # residual Re at inference (== train.re / data Re)
+
+data:
+  image_size: 256
+  gcs_bucket: ddpm-thesis-rh
+  data_path: gs://ddpm-thesis-rh/flow-data/generated_kf/kf_re500_256_20seed.npy
+  n_train_seqs: 16          # 20 seqs total -> 16/2/2 (80/10/10)
+  n_val_seqs: 2
+  n_test_seqs: 2
+
+checkpointing:
+  save_every_n_epochs: 10
+  checkpoint_dir: gs://ddpm-thesis-rh/checkpoints/ddpm
+
+monitoring:
+  run_name: conditioned_frozen_base_re500

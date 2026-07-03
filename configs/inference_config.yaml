@@ -14,21 +14,28 @@ sparse_diffusion:
 sequence_diffusion:
   test_set: False      # reconstruct the last n_test_seqs sequences (the test split)
   seq_idx: -1          # used only when test_set is false (-1 = last / 40th)
-  seq_idxs: [0, 1]     # explicit sequence list (overrides test_set / seq_idx); null to disable
-  out_tag: "re2000_"   # output filename tag -> sequence_reconstruction_re2000_seq{0,1}.pkl
+  seq_idxs: [32,33,34,35,36,37,38,39]   # in-distribution val (32-35) + test (36-39) of the 40-seq Re=1000 set
+  out_tag: "indist_re1000_learned_"
   batch_size: 16       # frames per step, sharded across chips (must be divisible by n_devices)
   K: 3
   S: [150, 100, 50]
-  checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl"
+  checkpoint: "gs://ddpm-thesis-rh/checkpoints/ddpm/conditioned_frozen_base/ckpt_epoch_0029.pkl"  # LEARNED Re=1000 adapter
   # degrade_input: build the model input on-the-fly from the clean GT (sparse 1024-pt +
   # NN-fill, = the BaratiLab degradation). Use for generated flows with no pre-made input.
   # Remove/comment it for the test set, where data.data_path is the pre-made npz.
   degrade_input: sparse_nnfill
-  #gt_data_path: "gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy"
-  gt_data_path: "gs://ddpm-thesis-rh/flow-data/generated/jaxcfd_re2000_1024to256_40seq.npy"
+  gt_data_path: "gs://ddpm-thesis-rh/flow-data/kf_2d_re1000_256_40seed.npy"   # in-distribution Re=1000
   mean: 0.0            # model normalization = kf_2d first-32 train split (new 32/4/4 split)
   std: 4.7988          # corrected from 5.0157; checkpoint (06-11) was trained with the new split
   store_iterations: false   # if true, keep every K-iteration output (large pickle)
+  # Sampling-time physics guidance (faithful port of BaratiLab's "Linear" ddpm_steps; no
+  # retraining). 0 = off. Each reverse step subtracts dx = lambda * grad_w(mean residual^2)/std.
+  # Set guidance_re to the TARGET flow's Reynolds number (e.g. 2000 for the Re=2000 OOD set) so
+  # the PDE residual injects the correct physics; sweep guidance_lambda (dx at lambda=1 has
+  # RMS~5e-4, so try lambda ~ 10..200). guidance_t_max=null applies guidance every step (= theirs).
+  guidance_lambda: 0.0
+  guidance_re: null
+  guidance_t_max: null
 
 
 nn_fill:
