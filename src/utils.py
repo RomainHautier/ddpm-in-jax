@@ -58,18 +58,35 @@ def save_plot_to_gcs(fig, filename: str, subdir: str = ""):
 
 
 def save_results_to_gcs(results, filename: str):
-    """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder."""
+    """Upload a pickle results dict to the GCS monitoring/sparse_reconstructions/ folder.
+
+    Prefers the file the caller already wrote (sequence_reconstructions/ or
+    sparse_reconstructions/) so we don't re-pickle a ~250MB dict. If neither exists we
+    pickle to a temp file and ALWAYS delete it after upload (previously this leaked a
+    delete=False tempfile per call and filled the disk)."""
     import subprocess, tempfile
-    local_path = os.path.join("monitoring", "sparse_reconstructions", filename)
     gcs_path = f"{MONITORING_DIR}/sparse_reconstructions/{filename}"
-    # file is already saved locally by inference.py — just upload it
-    if not os.path.exists(local_path):
+    candidates = [
+        os.path.join("monitoring", "sparse_reconstructions", filename),
+        os.path.join("monitoring", "sequence_reconstructions", filename),
+    ]
+    local_path = next((p for p in candidates if os.path.exists(p)), None)
+    tmp_created = False
+    if local_path is None:
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as t:
             local_path = t.name
+        tmp_created = True
         with open(local_path, "wb") as f:
             pickle.dump(results, f)
-    subprocess.run(["gcloud", "storage", "cp", local_path, gcs_path], check=True)
-    print(f"Saved results to {gcs_path}")
+    try:
+        subprocess.run(["gcloud", "storage", "cp", local_path, gcs_path], check=True)
+        print(f"Saved results to {gcs_path}")
+    finally:
+        if tmp_created:
+            try:
+                os.unlink(local_path)
+            except OSError:
+                pass
 
 
 def save_final_loss_plot(train_losses, val_losses, subdir: str = ""):
