@@ -1,0 +1,107 @@
+{
+  "weights": {
+    "spec": 0.5,
+    "spec_highk": 1.0,
+    "energy": 0.25,
+    "w1": 0.25,
+    "pde": 1.0
+  },
+  "pde_mode": "logratio",
+  "kband": [
+    1,
+    96
+  ],
+  "highk_band": [
+    32,
+    96
+  ],
+  "std": 4.7988,
+  "mean": 0.0,
+  "regimes": {
+    "500": {
+      "residual_ref": 1.5632476806640625,
+      "gt_floor": {
+        "spec": 0.0759488195180893,
+        "spec_highk": 0.08586760610342026,
+        "energy": 0.018556471914052963,
+        "w1": 0.05328921601176262,
+        "pde": 1.9086999893188477,
+        "pde_lr": 0.5846702456474304
+      },
+      "recon_mean": {
+        "spec": 0.8847664594650269,
+        "spec_highk": 1.2201249599456787,
+        "energy": 0.09316657483577728,
+        "w1": 0.10350433737039566,
+        "pde": 23.065567016601562,
+        "pde_lr": 7.191214084625244
+      },
+      "scales": {
+        "spec": 0.1637042909860611,
+        "spec_highk": 0.27381432056427,
+        "energy": 0.05301808565855026,
+        "w1": 0.04241117462515831,
+        "pde": 4.303861141204834,
+        "pde_lr": 0.9410029649734497
+      },
+      "stats_path": "base_results/regime_stats_re500.npz"
+    },
+    "1000": {
+      "residual_ref": 17.455413818359375,
+      "gt_floor": {
+        "spec": 0.20181754231452942,
+        "spec_highk": 0.24363470077514648,
+        "energy": 0.017581945285201073,
+        "w1": 0.09235455095767975,
+        "pde": 20.19594383239746,
+        "pde_lr": 0.16423960030078888
+      },
+      "recon_mean": {
+        "spec": 1.1443698406219482,
+        "spec_highk": 1.438593864440918,
+        "energy": 0.03234123811125755,
+        "w1": 0.07776176184415817,
+        "pde": 29.971254348754883,
+        "pde_lr": 0.35465943813323975
+      },
+      "scales": {
+        "spec": 0.5781954526901245,
+        "spec_highk": 0.6847789883613586,
+        "energy": 0.031789761036634445,
+        "w1": 0.02435823157429695,
+        "pde": 11.172943115234375,
+        "pde_lr": 0.39075928926467896
+      },
+      "stats_path": "base_results/regime_stats_re1000.npz"
+    },
+    "2000": {
+      "residual_ref": 45.992679595947266,
+      "gt_floor": {
+        "spec": 0.06639431416988373,
+        "spec_highk": 0.05905948951840401,
+        "energy": 0.004166167229413986,
+        "w1": 0.07315628975629807,
+        "pde": 31.728063583374023,
+        "pde_lr": 0.5665608644485474
+      },
+      "recon_mean": {
+        "spec": 4.097567081451416,
+        "spec_highk": 5.720170974731445,
+        "energy": 0.177272766828537,
+        "w1": 0.14480066299438477,
+        "pde": 26.8045654296875,
+        "pde_lr": 0.3580183982849121
+      },
+      "scales": {
+        "spec": 0.7007742524147034,
+        "spec_highk": 0.9761583209037781,
+        "energy": 0.08023582398891449,
+        "w1": 0.04017425328493118,
+        "pde": 5.780684471130371,
+        "pde_lr": 0.22115017473697662
+      },
+      "stats_path": "base_results/regime_stats_re2000.npz"
+    }
+  },
+  "note": "scales = std of each distance over the step-0 recon population at that Re. Run make_ddpo_reward with residual_ref=regimes[re]['residual_ref'] (logratio pde: the GT floor is the optimum, not 0) and use scales['pde_lr'] as the pde scale in that mode. Spectral anchors are geometric-mean (log_spec_ref in the regime npz)."
+}
