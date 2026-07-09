@@ -29,7 +29,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.physics_guidance import make_residual_loss
+from src.physics_guidance import make_ns_residual, make_residual_loss
 
 
 # ---------------------------------------------------------------- spectrum machinery
@@ -155,20 +155,107 @@ def make_vorticity_w1_distance(quantiles_ref):
 
 
 def make_pde_residual_distance(n=256, re=1000.0, dt=1.0 / 32.0, std=4.7988, mean=0.0,
-                               residual_ref=None):
+                               residual_ref=None, hinge=False):
     """d_pde(x): mean NS residual^2 of the de-normalized triplet (physics_guidance conventions,
     evaluated at the TARGET regime's Re). If residual_ref is given (the GT residual level for the
     regime — nonzero: ~12.9 at Re=1000 from discretization), returns the squared log-ratio to it
     instead of the raw value, so 'as consistent as the data itself' is the optimum rather than an
     unattainable 0. The only component that checks *dynamics* (phases), not statistics — it is
-    what catches spectrum-matched noise."""
+    what catches spectrum-matched noise.
+
+    hinge=True: ONE-SIDED penalty — only residual ABOVE the floor is penalized,
+    max(0, ln(pde) - ln(ref))^2. This removes pde's resistance to a sample carrying MORE small-scale
+    energy (which, if physical, keeps the residual near the floor); it still fires on residual that
+    rises above the floor (un-physical / wrong-phase / noise). Intended to let DDPO add legitimate
+    high-k energy the two-sided form was fighting (the spec-vs-pde plateau)."""
     loss_fn = make_residual_loss(n=n, re=re, dt=dt, std=std, mean=mean)
     if residual_ref is None:
         return loss_fn
     log_ref = jnp.log(jnp.float32(residual_ref))
 
     def d(x):
-        return (jnp.log(loss_fn(x) + 1e-20) - log_ref) ** 2
+        lr = jnp.log(loss_fn(x) + 1e-20) - log_ref
+        return jnp.maximum(lr, 0.0) ** 2 if hinge else lr ** 2
+
+    return jax.jit(d)
+
+
+def make_pde_local(n=256, re=1000.0, dt=1.0 / 32.0, std=4.7988, mean=0.0, frac=0.1,
+                   residual_ref=None, patch=1):
+    """d_pde_local(x): the SPATIALLY-LOCALIZED NS residual — magnitude-weighted mean residual^2 over
+    the worst-violating `frac` fraction of the field (default top 10%), instead of the whole-field
+    mean. Concentrates the physics penalty where the equation is most violated, so DDPO preferentially
+    fixes those regions (a GT-free localizer — the residual field correlates ~+0.23 with the actual
+    reconstruction error; see viz_pde). Because it targets the highest-residual sites, it drives
+    cleanup of spurious / wrong-phase structure (which raises the residual), complementary to the
+    spectral terms that add the missing high-k energy. residual_ref -> squared log-ratio to a floor.
+
+    patch (P): pool residual^2 into PxP block-means (block residual DENSITY) before selecting the
+    worst `frac`, so the target is the worst PxP REGIONS rather than isolated pixels. P=1 = pixel
+    (default, back-compat). The residual's correlation length is ~3px (see diag_residual_locality),
+    so P=2..4 matches its natural scale and averages out single-pixel discretization noise; P>=8
+    over-coarsens (a 2x2 block keeps ~76% of the residual structure, 8x8 only ~25%)."""
+    residual = make_ns_residual(n=n, re=re, dt=dt)
+
+    def _block_mean(a, P):                                   # (..., n, n) -> (..., n//P, n//P) block-mean
+        s = a.shape[:-2] + (a.shape[-2] // P, P, a.shape[-1] // P, P)
+        return a.reshape(s).mean(axis=(-3, -1))
+
+    def metric(x_norm):
+        w = x_norm * std + mean
+        r2 = residual(w) ** 2                                # (..., n, n) per-pixel residual^2
+        if patch > 1:
+            r2 = _block_mean(r2, patch)                      # (..., n/P, n/P) per-region residual density
+        thresh = jnp.quantile(r2, 1.0 - frac, axis=(-2, -1), keepdims=True)
+        mask = r2 >= thresh
+        return jnp.sum(r2 * mask, axis=(-2, -1)) / (jnp.sum(mask, axis=(-2, -1)) + 1e-8)
+
+    if residual_ref is None:
+        return jax.jit(metric)
+    log_ref = jnp.log(jnp.float32(residual_ref))
+
+    def d(x):
+        return (jnp.log(metric(x) + 1e-20) - log_ref) ** 2
+
+    return jax.jit(d)
+
+
+def make_alignment_distance(n=256, std=4.7988, mean=0.0, align_ref=0.2887, align_scale=0.105,
+                            L=2 * np.pi):
+    """d_align(x): squared normalized gap between the sample's small-scale ORIENTATION statistic and
+    the GT reference. a(x) = <cos^2(angle(grad omega, compressive strain axis))> weighted by
+    |grad omega|^2, from the middle frame (spectral derivatives, streamfunction velocity).
+
+    Physics (Batchelor filament dynamics): vorticity filaments are stretched along the extensional
+    strain axis, so their gradients lock to a preferred orientation relative to the LOCAL strain
+    eigenframe — and the strain field is LARGE-SCALE, i.e. resolved by the recon (corr ~0.82 to GT,
+    diag_strain). GT sits at a(x) ~ 0.289 (strongly organized; isotropic = 0.5); the base recon at
+    ~0.394 — the high-k energy DDPO adds is orientation-RANDOM speckle. Penalizing the gap demands
+    the added energy form coherent, strain-consistent filaments: a GT-free structural constraint the
+    spectral terms are blind to (they fix HOW MUCH energy; this fixes HOW it is organized).
+    align_ref/align_scale from diag_strain at Re=1000 (ref = GT value, scale = |base - GT| so the
+    base recon scores d ~ 1)."""
+    k = np.fft.fftfreq(n) * n * (2 * np.pi / L)
+    KX, KY = jnp.asarray(k[None, :]), jnp.asarray(k[:, None])
+    K2 = (KX ** 2 + KY ** 2).at[0, 0].set(1.0)
+
+    def metric(x_norm):
+        w = x_norm[..., 1] * std + mean                    # middle frame (B, n, n) physical vorticity
+        wh = jnp.fft.fft2(w)
+        psih = (wh / K2).at[..., 0, 0].set(0.0)            # streamfunction
+        u = jnp.real(jnp.fft.ifft2(1j * KY * psih))        # u = psi_y
+        v = jnp.real(jnp.fft.ifft2(-1j * KX * psih))       # v = -psi_x
+        uh, vh = jnp.fft.fft2(u), jnp.fft.fft2(v)
+        ux = jnp.real(jnp.fft.ifft2(1j * KX * uh)); uy = jnp.real(jnp.fft.ifft2(1j * KY * uh))
+        vx = jnp.real(jnp.fft.ifft2(1j * KX * vh)); vy = jnp.real(jnp.fft.ifft2(1j * KY * vh))
+        theta_c = 0.5 * jnp.arctan2(vx + uy, ux - vy) + jnp.pi / 2   # compressive strain axis
+        wx = jnp.real(jnp.fft.ifft2(1j * KX * wh)); wy = jnp.real(jnp.fft.ifft2(1j * KY * wh))
+        g2 = wx ** 2 + wy ** 2                             # |grad omega|^2 weight
+        c2 = jnp.cos(jnp.arctan2(wy, wx) - theta_c) ** 2
+        return jnp.sum(g2 * c2, axis=(-2, -1)) / (jnp.sum(g2, axis=(-2, -1)) + 1e-20)
+
+    def d(x):
+        return ((metric(x) - align_ref) / align_scale) ** 2
 
     return jax.jit(d)
 

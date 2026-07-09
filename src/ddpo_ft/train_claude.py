@@ -1,0 +1,232 @@
+"""Runnable DDPO finetuning entry point (Claude reference).
+
+Wires the base DDPM, the physics Reward, and the DDPOTrainer into a training run on the in-dist
+Re=1000 sparse-reconstruction task. The base checkpoint is UNCONDITIONAL, so conditioning is forced
+off (plain Unet) to match its params.
+
+Usage (from repo root, TPU idle):
+    JAX_PLATFORMS=''  python -m src.ddpo_ft.train_claude              # real run (needs TPU/GPU)
+    JAX_PLATFORMS=cpu python -m src.ddpo_ft.train_claude --smoke      # tiny CPU smoke test
+
+Assets it reads (all present locally):
+    configs/config.yaml                         base model + diffusion schedule
+    checkpoints/ddpm/ckpt_epoch_0299.pkl        base params
+    base_results/regime_stats_re1000.npz        reward anchors
+    base_results/reward_calibration.json        weights / per-Re scales / residual floor
+    flow-data/kf_2d_re1000_256_40seed.npy       GT (for sparse-nnfill inputs)
+    flow-data/kmflow_idx_lst.npz                sparse sampling mask
+"""
+import argparse
+import copy
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
+for _p in (_ROOT, _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import jax.numpy as jnp                           # noqa: E402
+import numpy as np                                # noqa: E402
+import optax                                      # noqa: E402
+import yaml                                       # noqa: E402
+
+from ppo_claude import DDPOTrainer                # noqa: E402
+from rewards_claude import Reward                 # noqa: E402
+from src.models.model import DDPM                 # noqa: E402
+from src.sequence_inference import build_triplets, load_sequence, sparse_nnfill_degrade  # noqa: E402
+from src.utils import load_checkpoint             # noqa: E402
+
+MEAN, STD, N = 0.0, 4.7988, 256
+GT_PATH = "flow-data/kf_2d_re1000_256_40seed.npy"
+
+# Per-regime config: in-dist Re=1000 (base's own regime) and the OOD targets Re=500/2000.
+# The base is Re=1000-trained; finetuning toward Re=2000 tests DDPO's OOD/extrapolation ability.
+# train_seqs = held-out-from-OOD-eval sequences (OOD sets keep seqs 0-7 for eval, so train on 8+).
+RE_CFG = {
+    1000: dict(gt="flow-data/kf_2d_re1000_256_40seed.npy", stats="base_results/regime_stats_re1000.npz",
+               train_seqs=[32, 33], probe_seq=36),
+    2000: dict(gt="flow-data/kf_re2000_256_20seed.npy",   stats="base_results/regime_stats_re2000.npz",
+               train_seqs=[8, 9, 10, 11], probe_seq=0),
+    500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
+               train_seqs=[8, 9, 10, 11], probe_seq=0),
+}
+
+
+def build_base_ddpm(config_path="configs/config.yaml"):
+    """Build the base (unconditional) DDPM + load base params. Conditioning forced off so the plain
+    Unet matches ckpt_0299."""
+    cfg = copy.deepcopy(yaml.safe_load(open(config_path)))
+    cfg["conditioning"]["train"]["enabled"] = False
+    cfg["conditioning"]["inference"]["enabled"] = False
+    ddpm = DDPM(cfg)
+    params, _, epoch = load_checkpoint("checkpoints/ddpm/ckpt_epoch_0299.pkl")
+    print(f"base DDPM: {type(ddpm.unet).__name__} | epoch {epoch} | T={cfg['diffusion']['T']}", flush=True)
+    return ddpm, params, cfg
+
+
+def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0):
+    """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED sparse-nnfill input triplets, drawn from
+    the given Re=1000 sequences. Each triplet is one conditioning field; DDPOTrainer tiles it K
+    times per input for the group. Cycles forever."""
+    rng = np.random.default_rng(seed)
+    pools = []
+    for s in seqs:
+        seq = load_sequence(gt_path, s)                       # (n_frames, H, W)
+        nn = sparse_nnfill_degrade(seq, s)                    # BaratiLab sparse degradation
+        pools.append(build_triplets(nn, mean, std))          # (n, 256, 256, 3) normalized
+    pool = np.concatenate(pools, axis=0)
+    print(f"input pool: {pool.shape} triplets from seqs {list(seqs)}", flush=True)
+    while True:
+        idx = rng.choice(len(pool), n_inputs, replace=False)
+        yield jnp.asarray(pool[idx], dtype=jnp.float32)
+
+
+def save_ckpt(params, opt_state, outer, save_dir):
+    import pickle
+    import jax
+    os.makedirs(save_dir, exist_ok=True)
+    # params/opt_state are REPLICATED across devices (pmap) -> save a single replica
+    unrep = lambda t: jax.tree_util.tree_map(lambda a: np.asarray(a[0]), t)
+    path = os.path.join(save_dir, f"ddpo_re1000_iter{outer:04d}.pkl")
+    with open(path, "wb") as f:
+        pickle.dump({"params": unrep(params), "opt_state": unrep(opt_state), "iter": outer}, f)
+    print(f"    saved {path}", flush=True)
+
+
+def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH):
+    """Fixed held-out probe: (sparse-input triplets, GT triplets) for the live GT-retention curve."""
+    seq = load_sequence(gt_path, seq_id)
+    inp = build_triplets(sparse_nnfill_degrade(seq, seq_id), MEAN, STD)
+    gt = build_triplets(seq, MEAN, STD)
+    idx = np.linspace(0, len(inp) - 1, n).astype(int)
+    return jnp.asarray(inp[idx]), jnp.asarray(gt[idx])
+
+
+def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
+         eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
+         pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0):
+    import json
+    import pickle
+    import jax
+    from src.rewards import make_spectrum_fn
+
+    cfg = RE_CFG[re]
+    save_dir = save_dir or f"monitoring/ddpo_re{re}_ckpts"
+    stats_path = stats or cfg["stats"]                     # override -> extrapolated anchor (no target data)
+    print(f"=== REGIME Re={re} | gt={cfg['gt']} train_seqs={cfg['train_seqs']} probe_seq={cfg['probe_seq']} "
+          f"-> {save_dir} ===", flush=True)
+    if stats:
+        print(f"    ANCHOR OVERRIDE: stats={stats_path}  scales_re={scales_re or re}  "
+              f"({'EXTRAPOLATED' if 'extrap' in stats_path else 'custom'} anchor — no target-regime data)", flush=True)
+
+    # EXPERIMENT 2 (reweight): one-sided pde hinge + heavier spec_highk, drop w1. Targets the
+    # spec-vs-pde landscape plateau — let the model add high-k energy without pde fighting it.
+    exp2_weights = {"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": 1.0}
+    if pde_local_weight > 0:                                # region-targeted residual-cleanup term
+        exp2_weights["pde_local"] = pde_local_weight
+        print(f"    pde_local ACTIVE: weight={pde_local_weight} patch={pde_local_patch}x{pde_local_patch} "
+              f"frac={pde_local_frac} (targets worst-{int(pde_local_frac*100)}% {pde_local_patch}x{pde_local_patch} regions)",
+              flush=True)
+    if align_weight > 0:                                    # strain-orientation (filament coherence) term
+        exp2_weights["align"] = align_weight
+        print(f"    align ACTIVE: weight={align_weight} (push small-scale orientation stat toward GT "
+              f"ref 0.289; base ~0.394, isotropic 0.5 — added energy must form strain-locked filaments)",
+              flush=True)
+    reward = Reward.from_calibration(
+        stats_path, "base_results/reward_calibration.json",
+        re=re, weights=exp2_weights, pde_hinge=True, scales_re=scales_re,
+        pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch)
+    print("reward weights:", reward.weights, "| pde_hinge=True", flush=True)
+
+    nd = jax.local_device_count()
+    print(f"data-parallel over {nd} device(s)", flush=True)
+    if smoke:
+        t_start, n_inputs, group_size, n_inner, temp, kl = 3, nd, 2, 2, 1.5, 0.01
+        n_outer = n_outer or 2
+    else:
+        t_start, n_inputs, group_size, n_inner, temp, kl = 100, nd, 8, 4, 1.5, 0.01
+        n_outer = n_outer or 300
+
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(lr))
+    ddpm, base_orig, _ = build_base_ddpm()
+    if resume:                                                # continue a checkpoint (keep TRUE base for KL)
+        ck = pickle.load(open(resume, "rb"))
+        start_iter = ck["iter"] + 1
+        trainer = DDPOTrainer(ddpm, ck["params"], reward, optimizer, group_size=group_size,
+                              t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=start_iter,
+                              sampling_temp=temp, base_params=base_orig, opt_state=ck["opt_state"])
+        print(f"RESUMED from {resume} at iter {start_iter}", flush=True)
+    else:
+        start_iter = 0
+        trainer = DDPOTrainer(ddpm, base_orig, reward, optimizer, group_size=group_size,
+                              t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=0,
+                              sampling_temp=temp)
+
+    inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs)
+    print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: t_start={t_start} B={n_inputs*group_size} "
+          f"n_inner={n_inner} start={start_iter} n_outer={n_outer} lr={lr} temp={temp} kl={kl} "
+          f"save/{save_every} eval/{eval_every} ===", flush=True)
+
+    # live GT-retention probe (held-out test seq 36); base reference computed once
+    spec_fn = make_spectrum_fn(N)
+    hik_ret = lambda recon, gt: float((np.asarray(spec_fn(recon))[:, 32:].sum(-1)
+                                       / np.asarray(spec_fn(gt))[:, 32:].sum(-1)).mean())
+    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"])
+    base_hik = None if smoke else hik_ret(
+        trainer.probe_x0(probe_inp, jax.random.PRNGKey(7),
+                         params=jax.tree_util.tree_map(lambda a: a[0], trainer.base_params)), probe_gt)
+    if base_hik is not None:
+        print(f"GT-probe base hik_ret = {base_hik:.3f} (want DDPO to exceed this)", flush=True)
+
+    metrics_path = None if smoke else os.path.join(save_dir, "metrics.jsonl")
+    if metrics_path:
+        os.makedirs(save_dir, exist_ok=True)
+        open(metrics_path, "a" if resume else "w").close()
+
+    for outer in range(n_outer):
+        gi = start_iter + outer
+        m = trainer.train_iter(next(inputs))
+        comp = "  ".join(f"{k}={v:.3f}" for k, v in m["components"].items())
+        print(f"[{gi:04d}] R={m['reward_mean']:.3f}±{m['reward_std']:.3f} |A|={m['adv_abs_mean']:.2f} "
+              f"loss {m['loss_first']:.3f}->{m['loss_last']:.3f}  {comp}", flush=True)
+        rec = {"iter": gi, **{k: v for k, v in m.items() if k != "components"},
+               **{f"c_{k}": v for k, v in m["components"].items()}}
+        if not smoke and (gi + 1) % eval_every == 0:          # live GT-retention probe
+            hr = hik_ret(trainer.probe_x0(probe_inp, jax.random.PRNGKey(gi)), probe_gt)
+            rec["gt_hik_ret"] = hr
+            print(f"    [GTeval iter={gi}] hik_ret={hr:.3f}  (base {base_hik:.3f}, Δ{hr - base_hik:+.3f})", flush=True)
+        if metrics_path:
+            with open(metrics_path, "a") as f:
+                f.write(json.dumps(rec) + "\n")
+        if not smoke and (gi + 1) % save_every == 0:
+            save_ckpt(trainer.params, trainer.opt_state, gi, save_dir)
+
+    if not smoke:
+        save_ckpt(trainer.params, trainer.opt_state, start_iter + n_outer - 1, save_dir)
+    print("\nDONE.", flush=True)
+    return trainer
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--smoke", action="store_true", help="tiny CPU run to validate the loop")
+    ap.add_argument("--n_outer", type=int, default=None, help="number of outer iterations")
+    ap.add_argument("--lr", type=float, default=5e-5, help="Adam learning rate")
+    ap.add_argument("--resume", type=str, default=None, help="checkpoint .pkl to continue from")
+    ap.add_argument("--save_every", type=int, default=20)
+    ap.add_argument("--eval_every", type=int, default=10, help="live GT-retention probe interval")
+    ap.add_argument("--save_dir", type=str, default=None)
+    ap.add_argument("--re", type=int, default=1000, help="target regime (1000 in-dist, 2000/500 OOD)")
+    ap.add_argument("--stats", type=str, default=None,
+                    help="override reward anchor npz (e.g. extrapolated anchor -> zero target-regime data)")
+    ap.add_argument("--scales_re", type=int, default=None,
+                    help="pull per-component scales from THIS regime instead of --re (owned normalizers)")
+    ap.add_argument("--pde_local_weight", type=float, default=0.0,
+                    help="weight for the region-targeted residual-cleanup term (0 = off)")
+    ap.add_argument("--pde_local_patch", type=int, default=2, help="PxP region size for pde_local (2..4)")
+    ap.add_argument("--pde_local_frac", type=float, default=0.1, help="worst-fraction of regions targeted")
+    ap.add_argument("--align_weight", type=float, default=0.0,
+                    help="weight for the strain-orientation (filament coherence) term (0 = off)")
+    main(**vars(ap.parse_args()))
