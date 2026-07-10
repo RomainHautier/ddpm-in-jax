@@ -40,7 +40,8 @@ import matplotlib.pyplot as plt                     # noqa: E402
 
 from eval_ddpo import make_sampler                  # noqa: E402
 from train_claude import build_base_ddpm            # noqa: E402
-from src.sequence_inference import build_triplets, load_sequence, sparse_nnfill_degrade  # noqa: E402
+from src.sequence_inference import (               # noqa: E402
+    build_triplets, grid_downsample_degrade, load_sequence, sparse_nnfill_degrade)
 
 MEAN, STD = 0.0, 4.7988
 GT_PATH = "flow-data/kf_2d_re1000_256_40seed.npy"
@@ -68,15 +69,16 @@ def _corr(a, b):
 
 
 def main(ckpt, seq=36, frames=3, t_start=100, re=1000, kcut=32, sigma=6.0, seed=1,
-         out="monitoring/ddpo_ckpts/viz_energy.png"):
+         out="monitoring/ddpo_ckpts/viz_energy.png", grid_factor=None, gt=None):
     ddpm, base_params, _ = build_base_ddpm()
     ddpo_params = pickle.load(open(ckpt, "rb"))["params"]
     sampler = make_sampler(ddpm.unet, ddpm.alpha_bar, ddpm.beta_schedule, t_start, temp=1.0)
     ab = ddpm.alpha_bar
     sqrt_ab, sqrt_1m = float(jnp.sqrt(ab[t_start])), float(jnp.sqrt(1.0 - ab[t_start]))
 
-    s = load_sequence(GT_PATH, seq)
-    inp = build_triplets(sparse_nnfill_degrade(s, seq), MEAN, STD)
+    s = load_sequence(gt or GT_PATH, seq)
+    degraded = grid_downsample_degrade(s, grid_factor) if grid_factor else sparse_nnfill_degrade(s, seq)
+    inp = build_triplets(degraded, MEAN, STD)
     gt = build_triplets(s, MEAN, STD)
     idx = np.linspace(len(inp) // 4, len(inp) - 1, frames).astype(int)
     xin, xgt = jnp.asarray(inp[idx]), np.asarray(gt[idx])
@@ -147,4 +149,6 @@ if __name__ == "__main__":
     ap.add_argument("--kcut", type=int, default=32)
     ap.add_argument("--sigma", type=float, default=6.0)
     ap.add_argument("--out", type=str, default="monitoring/ddpo_ckpts/viz_energy.png")
+    ap.add_argument("--grid_factor", type=int, default=None, help="grid-N input instead of random-1024")
+    ap.add_argument("--gt", type=str, default=None, help="GT .npy (default Re=1000); e.g. Re=2000 path")
     main(**vars(ap.parse_args()))

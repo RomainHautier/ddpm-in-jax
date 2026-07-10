@@ -27,7 +27,8 @@ import matplotlib.pyplot as plt                   # noqa: E402
 from ppo_claude import policy_mean_std            # noqa: E402
 from train_claude import build_base_ddpm          # noqa: E402
 from src.rewards import make_residual_loss, make_spectrum_fn  # noqa: E402
-from src.sequence_inference import build_triplets, load_sequence, sparse_nnfill_degrade  # noqa: E402
+from src.sequence_inference import (               # noqa: E402
+    build_triplets, grid_downsample_degrade, load_sequence, sparse_nnfill_degrade)
 
 MEAN, STD, N, HIK0 = 0.0, 4.7988, 256, 32
 GT_PATH = "flow-data/kf_2d_re1000_256_40seed.npy"
@@ -63,10 +64,12 @@ def eff_resolution(E_recon, E_gt):
 
 
 def evaluate(ckpt_path, t_start=100, n_per_seq=12, n_samples=2, batch=24, seed=0,
-             re=1000, gt_path=None, val=None, test=None):
+             re=1000, gt_path=None, val=None, test=None, grid_factor=None):
     gt_path = gt_path or GT_PATH
     val = val if val is not None else VAL
     test = test if test is not None else TEST
+    degrade = (lambda seq, s: grid_downsample_degrade(seq, grid_factor)) if grid_factor \
+        else sparse_nnfill_degrade
     ddpm, base_params, _ = build_base_ddpm()
     ddpo_params = pickle.load(open(ckpt_path, "rb"))["params"]
     print(f"eval {ckpt_path} | re={re} gt={gt_path} | t_start={t_start} val{val}+test{test} "
@@ -93,7 +96,7 @@ def evaluate(ckpt_path, t_start=100, n_per_seq=12, n_samples=2, batch=24, seed=0
         xin, xgt = [], []
         for s in seqs:
             seq = load_sequence(gt_path, s)
-            inp = build_triplets(sparse_nnfill_degrade(seq, s), MEAN, STD)
+            inp = build_triplets(degrade(seq, s), MEAN, STD)
             gt = build_triplets(seq, MEAN, STD)
             idx = np.linspace(0, len(inp) - 1, n_per_seq).astype(int)
             xin.append(inp[idx]); xgt.append(gt[idx])
@@ -171,7 +174,9 @@ if __name__ == "__main__":
     ap.add_argument("--gt", type=str, default=None, help="GT .npy (defaults to Re=1000 path)")
     ap.add_argument("--val", type=str, default=None, help="comma-list of val seq ids")
     ap.add_argument("--test", type=str, default=None, help="comma-list of test seq ids")
+    ap.add_argument("--grid_factor", type=int, default=None,
+                    help="clean grid-N input downsample instead of random-1024 (e.g. 4)")
     a = ap.parse_args()
     _lst = lambda s: [int(x) for x in s.split(",")] if s else None
     evaluate(a.ckpt, t_start=a.t_start, n_per_seq=a.n_per_seq, n_samples=a.n_samples,
-             re=a.re, gt_path=a.gt, val=_lst(a.val), test=_lst(a.test))
+             re=a.re, gt_path=a.gt, val=_lst(a.val), test=_lst(a.test), grid_factor=a.grid_factor)

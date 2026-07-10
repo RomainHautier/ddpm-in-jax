@@ -35,7 +35,8 @@ import yaml                                       # noqa: E402
 from ppo_claude import DDPOTrainer                # noqa: E402
 from rewards_claude import Reward                 # noqa: E402
 from src.models.model import DDPM                 # noqa: E402
-from src.sequence_inference import build_triplets, load_sequence, sparse_nnfill_degrade  # noqa: E402
+from src.sequence_inference import (               # noqa: E402
+    build_triplets, grid_downsample_degrade, load_sequence, sparse_nnfill_degrade)
 from src.utils import load_checkpoint             # noqa: E402
 
 MEAN, STD, N = 0.0, 4.7988, 256
@@ -66,18 +67,24 @@ def build_base_ddpm(config_path="configs/config.yaml"):
     return ddpm, params, cfg
 
 
-def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0):
-    """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED sparse-nnfill input triplets, drawn from
-    the given Re=1000 sequences. Each triplet is one conditioning field; DDPOTrainer tiles it K
-    times per input for the group. Cycles forever."""
+def _degrade(seq, s, grid_factor):
+    """grid_factor=None -> random 1024-pt collocation (the task); else clean grid-`factor` downsample."""
+    return grid_downsample_degrade(seq, grid_factor) if grid_factor else sparse_nnfill_degrade(seq, s)
+
+
+def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, grid_factor=None):
+    """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED nnfill input triplets, drawn from the given
+    Re=1000 sequences. grid_factor=None -> random-1024 task degradation; else clean grid-`factor`
+    (e.g. 4 -> 4096-pt regular grid). Each triplet is one conditioning field; cycles forever."""
     rng = np.random.default_rng(seed)
     pools = []
     for s in seqs:
         seq = load_sequence(gt_path, s)                       # (n_frames, H, W)
-        nn = sparse_nnfill_degrade(seq, s)                    # BaratiLab sparse degradation
+        nn = _degrade(seq, s, grid_factor)                    # sparse degradation (random or grid)
         pools.append(build_triplets(nn, mean, std))          # (n, 256, 256, 3) normalized
     pool = np.concatenate(pools, axis=0)
-    print(f"input pool: {pool.shape} triplets from seqs {list(seqs)}", flush=True)
+    print(f"input pool: {pool.shape} triplets from seqs {list(seqs)} "
+          f"(degrade={'grid'+str(grid_factor)+'x' if grid_factor else 'random-1024'})", flush=True)
     while True:
         idx = rng.choice(len(pool), n_inputs, replace=False)
         yield jnp.asarray(pool[idx], dtype=jnp.float32)
@@ -95,10 +102,11 @@ def save_ckpt(params, opt_state, outer, save_dir):
     print(f"    saved {path}", flush=True)
 
 
-def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH):
-    """Fixed held-out probe: (sparse-input triplets, GT triplets) for the live GT-retention curve."""
+def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH, grid_factor=None):
+    """Fixed held-out probe: (nnfill-input triplets, GT triplets) for the live GT-retention curve.
+    grid_factor matches the training degradation so the probe reflects the same regime."""
     seq = load_sequence(gt_path, seq_id)
-    inp = build_triplets(sparse_nnfill_degrade(seq, seq_id), MEAN, STD)
+    inp = build_triplets(_degrade(seq, seq_id, grid_factor), MEAN, STD)
     gt = build_triplets(seq, MEAN, STD)
     idx = np.linspace(0, len(inp) - 1, n).astype(int)
     return jnp.asarray(inp[idx]), jnp.asarray(gt[idx])
@@ -106,7 +114,8 @@ def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH):
 
 def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
-         pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0):
+         pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
+         grid_factor=None):
     import json
     import pickle
     import jax
@@ -164,7 +173,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                               t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=0,
                               sampling_temp=temp)
 
-    inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs)
+    inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs,
+                                    grid_factor=grid_factor)
     print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: t_start={t_start} B={n_inputs*group_size} "
           f"n_inner={n_inner} start={start_iter} n_outer={n_outer} lr={lr} temp={temp} kl={kl} "
           f"save/{save_every} eval/{eval_every} ===", flush=True)
@@ -173,7 +183,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     spec_fn = make_spectrum_fn(N)
     hik_ret = lambda recon, gt: float((np.asarray(spec_fn(recon))[:, 32:].sum(-1)
                                        / np.asarray(spec_fn(gt))[:, 32:].sum(-1)).mean())
-    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"])
+    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"], grid_factor=grid_factor)
     base_hik = None if smoke else hik_ret(
         trainer.probe_x0(probe_inp, jax.random.PRNGKey(7),
                          params=jax.tree_util.tree_map(lambda a: a[0], trainer.base_params)), probe_gt)
@@ -229,4 +239,6 @@ if __name__ == "__main__":
     ap.add_argument("--pde_local_frac", type=float, default=0.1, help="worst-fraction of regions targeted")
     ap.add_argument("--align_weight", type=float, default=0.0,
                     help="weight for the strain-orientation (filament coherence) term (0 = off)")
+    ap.add_argument("--grid_factor", type=int, default=None,
+                    help="clean grid-N downsample for the INPUT instead of random-1024 (e.g. 4 -> 4096 pts)")
     main(**vars(ap.parse_args()))

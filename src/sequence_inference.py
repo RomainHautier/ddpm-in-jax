@@ -46,6 +46,20 @@ def sparse_nnfill_degrade(seq, seq_idx, npz_path="flow-data/kmflow_idx_lst.npz")
     return np.stack([f[ind[0], ind[1]] for f in seq])
 
 
+def grid_downsample_degrade(seq, factor):
+    """Deterministic regular-grid degradation of a clean (n_frames, H, W) sequence: keep every
+    `factor`-th pixel in each dim (a clean, reproducible sampling anchor vs the random-collocation
+    mask), then nearest-neighbour-fill. factor 4 -> 64x64=4096 pts on a 256 grid, etc. Field stays
+    full-resolution (256x256) — `factor` sets observation sparsity, not tensor size."""
+    from scipy.ndimage import distance_transform_edt
+
+    H, W = seq.shape[-2], seq.shape[-1]
+    mask = np.zeros((H, W), bool)
+    mask[::factor, ::factor] = True
+    _, ind = distance_transform_edt(~mask, return_indices=True)
+    return np.stack([f[ind[0], ind[1]] for f in seq])
+
+
 def build_triplets(seq, mean, std):
     """Normalize with the model's training stats and stack 3 consecutive
     frames as channels -> (n_frames - 2, H, W, 3), matching train_ddpm.build_samples."""
