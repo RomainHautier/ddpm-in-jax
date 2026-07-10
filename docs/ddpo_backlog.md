@@ -66,3 +66,22 @@ The Re=2000 extrapolation uses anchors from {Re=500, 1000}. Push further: extrap
   — only the Re=2000 one was generated.
 - Resolution sweep at intermediate densities (2048, 3072 pts) to pin where placement crosses 0.6 more
   precisely (currently bracketed to ~3000).
+
+---
+
+## Final guided-eval matrix (2026-07-10) — base/finetuned x unguided/guided, both regimes
+
+Full val+test at grid-4x (`eval_guided_full`). x0-guidance lambda=3.
+
+**Re=1000** (GT residual 1.06): base 0.396/3.36 -> DDPO 0.607/3.44 (retention +0.21, k* 31->95,
+residual +0.08). Guidance lambda=3: residual -3.6% on both (DDPO 3.44->3.32), retention/MSE/placement
+flat. Best = DDPO+lam3: ret 0.597, resid 3.32 (~=base), k* 95.
+
+**Re=2000 OOD** (extrapolated anchor, zero target GT; GT residual 3.01): base 0.275/3.81 -> DDPO
+0.350/4.07 (retention +0.075, placement 0.838->0.851). Guidance lambda=3: residual -7% on both
+(DDPO 4.07->3.77 < base 3.81), everything else flat. GENERALIZES OOD (analytic physics).
+
+**Two additive levers:** DDPO = energy (retention/k*/placement), x0-guidance(lam=3) = residual
+(-3.5..7%, free, OOD-safe). Combined DDPO+lam3 beats base on every moving metric at both regimes.
+CEILING: residual still 3x GT in-dist (3.3 vs 1.06), 1.25x OOD (3.8 vs 3.01) — nudge not closure;
+temporal-consistency gap needs a structural fix (temporally-coupled training), not reward/guidance.
