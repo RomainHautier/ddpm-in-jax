@@ -47,9 +47,12 @@ def _topdec(field, weight):
     return float(np.mean(out))
 
 
+S_MULTI = [150, 100, 50]
+
+
 def main(ckpt, lam=30.0, seqs="32,36", frames=4, t_start=100, re=1000, gt=None, grid_factor=4, seed=1,
-         out=None):
-    out = out or f"monitoring/ab_pdelocal/guided_effect_re{re}.png"
+         out=None, k3=False):
+    out = out or f"monitoring/ab_pdelocal/guided_effect_re{re}{'_k3' if k3 else ''}.png"
     seqs = [int(x) for x in str(seqs).split(",")]
     ddpm, _, _ = build_base_ddpm()
     params = pickle.load(open(ckpt, "rb"))["params"]
@@ -68,11 +71,26 @@ def main(ckpt, lam=30.0, seqs="32,36", frames=4, t_start=100, re=1000, gt=None, 
         xin.append(a[idx]); xgt.append(g[idx])
     xin, xgt = jnp.asarray(np.concatenate(xin)), np.concatenate(xgt)
 
-    sU = make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t_start, dx_func, 0.0)
-    sG = make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t_start, dx_func, lam)
-    key = jax.random.PRNGKey(seed); k1, k2 = jax.random.split(key)
-    xn = sa * xin + s1 * jax.random.normal(k1, xin.shape)          # same start noise for both
-    U = np.asarray(sU(params, xn, k2)); G = np.asarray(sG(params, xn, k2))
+    levels = sorted({t_start, *S_MULTI}) if k3 else [t_start]
+    sU = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx_func, 0.0) for t in levels}
+    sG = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx_func, lam) for t in levels}
+    key = jax.random.PRNGKey(seed)
+
+    def noise_to(x, t, kk):
+        return float(jnp.sqrt(ab[t])) * x + float(jnp.sqrt(1.0 - ab[t])) * jax.random.normal(kk, x.shape)
+
+    def recon(sdict):
+        """K=1 single chain, or K=3 renoise/denoise. FIXED per-pass keys (fold_in) so unguided and
+        guided share identical noise — the only difference is the guidance."""
+        if k3:
+            xc = xin
+            for j, Sj in enumerate(S_MULTI):
+                xc = jnp.asarray(sdict[Sj](params, noise_to(xc, Sj, jax.random.fold_in(key, 10 + j)),
+                                           jax.random.fold_in(key, 20 + j)))
+            return np.asarray(xc)
+        xn = noise_to(xin, t_start, jax.random.fold_in(key, 10))
+        return np.asarray(sdict[t_start](params, xn, jax.random.fold_in(key, 20)))
+    U, G = recon(sU), recon(sG)
 
     wg, wu, wgd = xgt[..., 1] * STD, U[..., 1] * STD, G[..., 1] * STD
     Ru = np.abs(np.asarray(resid(jnp.asarray(U) * STD)))
@@ -111,7 +129,7 @@ def main(ckpt, lam=30.0, seqs="32,36", frames=4, t_start=100, re=1000, gt=None, 
             a = axes[r, c]; a.imshow(d, cmap=cm, vmin=vmn, vmax=vmx)
             a.set_xticks([]); a.set_yticks([]); a.set_title(nm, fontsize=8)
         axes[r, 0].set_ylabel(f"frame {r}", fontsize=9)
-    fig.suptitle(f"Re={re} grid-{grid_factor}× — x0-guidance (λ={lam:.0f}) vs unguided: residual, energy, "
+    fig.suptitle(f"Re={re} grid-{grid_factor}× {'K=3 ' if k3 else 'K=1 '}— x0-guidance (λ={lam:.0f}) vs unguided: residual, energy, "
                  f"trade-off check", y=1.005, fontsize=11)
     plt.tight_layout(); plt.savefig(out, dpi=118, bbox_inches="tight")
     print(f"saved {out}", flush=True)
@@ -123,7 +141,7 @@ def main(ckpt, lam=30.0, seqs="32,36", frames=4, t_start=100, re=1000, gt=None, 
         ax.plot(kx, np.asarray(spec_fn(jnp.asarray(X))).mean(0)[1:96], color=c, lw=2 if nm == "GT" else 1.7, ls=ls, label=nm)
     ax.axvspan(HIK0, 95, color="#3ca951", alpha=0.06); ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel("wavenumber k"); ax.set_ylabel("E(k)"); ax.legend(fontsize=9, frameon=False)
-    ax.set_title(f"Re={re} enstrophy spectrum — does guidance change the energy?", fontsize=11)
+    ax.set_title(f"Re={re} {'K=3' if k3 else 'K=1'} enstrophy spectrum — guided vs unguided vs GT", fontsize=11)
     plt.tight_layout(); plt.savefig(out.replace(".png", "_spec.png"), dpi=118, bbox_inches="tight")
     print(f"saved {out.replace('.png', '_spec.png')}", flush=True)
 
@@ -138,5 +156,6 @@ if __name__ == "__main__":
     ap.add_argument("--re", type=int, default=1000)
     ap.add_argument("--gt", type=str, default=None)
     ap.add_argument("--grid_factor", type=int, default=4)
+    ap.add_argument("--k3", action="store_true", help="use K=3 multi-phase recon instead of single chain")
     ap.add_argument("--out", type=str, default=None)
     main(**vars(ap.parse_args()))
