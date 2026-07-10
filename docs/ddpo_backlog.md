@@ -21,15 +21,25 @@ more slowly than energy does. The `pde_local` reward (worst-region residual) was
 **Why it matters.** Energy/spectrum is solved at grid-4× (retention +0.21, k* 31→95, placement 0.81, MSE
 flat), but physics-consistency at the finest scales is the one unsolved axis.
 
-**Ideas to try (untested):**
-- **Two-sided / stronger pde term** so the reward pushes residual *toward* the floor rather than tolerating
-  it (the current hinge only penalizes *above* the floor → permits the speckle).
-- **Target the residual speckle** directly — the recon has broadband residual noise GT lacks; e.g. a
-  spectral-residual term or a smoothness prior on the residual field.
-- **Gentler multi-phase (K=2) / lower sampling temperature** — K=3 over-sharpens and raises the residual;
-  a gentler renoise may keep the sharpness/placement gain without the residual inflation.
-- **Accept it's information-limited** like placement was, and only attack it with much denser input
-  (>11% sampling, where PDE placement finally starts to climb).
+**KEY FINDING (2026-07-09, `diag_residual_landscape`).** GT is the PDE-residual **minimum**: GT residual is
+lowest at full resolution (1.31) and *rises* under any smoothing (up to 4.78) — smoothing breaks the NS
+balance. So **reducing residual tends TOWARD GT, not toward an over-smoothed solution** (the earlier
+over-smoothing worry is ruled out; the reward premise is sound). The recon's excess residual (3.65 vs GT
+1.31) is **high-k speckle**: the residual power spectrum shows base/DDPO above GT *only* at k>32, and
+low-passing k>64 drops recon residual to ~2.1. Interpretation: DDPO adds high-k *energy* with high-k
+*residual* — right amount, wrong dynamics (phase). GT has high-k energy AND low high-k residual because its
+fine structure is physical.
+
+**The reward to build:** a **spectral-residual term** that penalizes residual POWER at k>32 (the speckle) —
+driving the added structure toward NS-consistent/physical (toward GT) — WITHOUT smoothing away the high-k
+*energy* (a naive smoothness prior kills the retention DDPO worked for and gets stuck at residual ~2.1).
+The two must be separated: keep the enstrophy spectrum, kill the residual spectrum at high k.
+
+**Other ideas (untested):**
+- **Two-sided / stronger pde term** so the reward pushes residual *toward* the floor (current hinge only
+  penalizes *above* the floor → tolerates the speckle). Now known safe since GT is the residual minimum.
+- **Gentler multi-phase (K=2) / lower sampling temperature** — K=3 over-sharpens and raises residual.
+- **Denser input** (>11% sampling) where PDE placement finally climbs — the information-limited fallback.
 
 ---
 
