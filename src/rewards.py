@@ -260,6 +260,41 @@ def make_alignment_distance(n=256, std=4.7988, mean=0.0, align_ref=0.2887, align
     return jax.jit(d)
 
 
+def make_spec_residual_distance(n=256, re=1000.0, dt=1.0 / 32.0, std=4.7988, mean=0.0,
+                                kband=(32, 96), ref_power=None):
+    """d_spec_residual(x): mean POWER of the NS-residual field in the band [kband).
+
+    HONEST STATUS (measured 2026-07-09, grid-4x Re=1000): the recon's high-k (k>=32) residual power
+    is AT/BELOW GT's (base 1.26e6 vs GT 2.27e6) — there is NO high-k speckle exceeding GT, so the
+    default band is NOT the recon's problem. The recon's residual excess is at LARGE scales (k<8,
+    2x GT power): a temporal-spatial BALANCE error (the wt term fails to cancel advection by ~2%,
+    vs GT's 10^4 cancellation) — attack that via the plain `pde` term (Parseval-dominated by k<8),
+    not this component. Kept for band-limited residual experiments (kband is configurable).
+
+    ref_power (GT band residual-power floor) -> hinged squared log-ratio: penalize only ABOVE the
+    floor. None -> raw mean band residual power."""
+    residual = make_ns_residual(n=n, re=re, dt=dt)
+    k = np.fft.fftfreq(n) * n
+    kmag = np.sqrt(k[:, None] ** 2 + k[None, :] ** 2)
+    mask = jnp.asarray(((kmag >= kband[0]) & (kmag < kband[1])).astype(np.float32))
+    denom = float(mask.sum())
+
+    def metric(x_norm):
+        w = x_norm * std + mean
+        R = residual(w)                                      # (..., n, n) residual field
+        P = jnp.abs(jnp.fft.fft2(R)) ** 2                    # residual power
+        return jnp.sum(P * mask, axis=(-2, -1)) / denom      # (...,) mean high-k residual power
+
+    if ref_power is None:
+        return jax.jit(metric)
+    log_ref = jnp.log(jnp.float32(ref_power))
+
+    def d(x):
+        return jnp.maximum(jnp.log(metric(x) + 1e-8) - log_ref, 0.0) ** 2   # hinge above GT floor
+
+    return jax.jit(d)
+
+
 # ---------------------------------------------------------------- combined DDPO reward
 
 DEFAULT_WEIGHTS = {"spec": 1.0, "energy": 1.0, "w1": 1.0, "pde": 1.0}

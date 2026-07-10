@@ -115,7 +115,7 @@ def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH, grid_factor=None):
 def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
-         grid_factor=None):
+         spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None):
     import json
     import pickle
     import jax
@@ -132,7 +132,13 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
 
     # EXPERIMENT 2 (reweight): one-sided pde hinge + heavier spec_highk, drop w1. Targets the
     # spec-vs-pde landscape plateau — let the model add high-k energy without pde fighting it.
-    exp2_weights = {"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": 1.0}
+    # pde_weight > 1 -> "pde-heavy" mode: make the residual (dominated by the k<8 temporal-spatial
+    # balance error, see diag decomposition) the DOMINANT reward term, with spec_highk as the
+    # anti-smoothing guard.
+    exp2_weights = {"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": pde_weight}
+    if pde_weight != 1.0:
+        print(f"    pde-heavy: pde weight={pde_weight} (target the large-scale temporal-balance residual; "
+              f"spec_highk=3.0 guards the energy)", flush=True)
     if pde_local_weight > 0:                                # region-targeted residual-cleanup term
         exp2_weights["pde_local"] = pde_local_weight
         print(f"    pde_local ACTIVE: weight={pde_local_weight} patch={pde_local_patch}x{pde_local_patch} "
@@ -142,6 +148,12 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         exp2_weights["align"] = align_weight
         print(f"    align ACTIVE: weight={align_weight} (push small-scale orientation stat toward GT "
               f"ref 0.289; base ~0.394, isotropic 0.5 — added energy must form strain-locked filaments)",
+              flush=True)
+    if spec_residual_weight > 0:                            # high-k residual-speckle term
+        from rewards_claude import SPEC_RESID_FLOOR
+        exp2_weights["spec_residual"] = spec_residual_weight
+        print(f"    spec_residual ACTIVE: weight={spec_residual_weight} (penalize k>=32 NS-residual power "
+              f"above GT floor {SPEC_RESID_FLOOR.get(re):.2e} — kill the residual speckle, keep the energy)",
               flush=True)
     reward = Reward.from_calibration(
         stats_path, "base_results/reward_calibration.json",
@@ -239,6 +251,10 @@ if __name__ == "__main__":
     ap.add_argument("--pde_local_frac", type=float, default=0.1, help="worst-fraction of regions targeted")
     ap.add_argument("--align_weight", type=float, default=0.0,
                     help="weight for the strain-orientation (filament coherence) term (0 = off)")
+    ap.add_argument("--spec_residual_weight", type=float, default=0.0,
+                    help="weight for the high-k residual-speckle term (k>=32 residual power; 0 = off)")
+    ap.add_argument("--pde_weight", type=float, default=1.0,
+                    help="weight for the pde residual term (>1 = pde-heavy: attack the temporal-balance residual)")
     ap.add_argument("--grid_factor", type=int, default=None,
                     help="clean grid-N downsample for the INPUT instead of random-1024 (e.g. 4 -> 4096 pts)")
     main(**vars(ap.parse_args()))

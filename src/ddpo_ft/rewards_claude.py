@@ -33,14 +33,18 @@ from src.rewards import (                         # noqa: E402
     make_energy_distance,
     make_pde_local,
     make_pde_residual_distance,
+    make_spec_residual_distance,
     make_spectrum_distance,
     make_vorticity_w1_distance,
 )
 
+# GT high-k (k>=32) residual-power floors, measured from the regime GT (diag: kf_re*.npy).
+SPEC_RESID_FLOOR = {1000: 1.1377e6, 2000: 3.1050e6, 500: 4.0e5}
+
 STD, MEAN, DT, N = 4.7988, 0.0, 1.0 / 32.0, 256
 FULL_BAND, HIGHK_BAND = (1, 96), (32, 96)
 DEFAULT_WEIGHTS = {"spec": 0.5, "spec_highk": 1.0, "energy": 0.25, "w1": 0.25, "pde": 1.0,
-                   "pde_local": 0.0, "align": 0.0}
+                   "pde_local": 0.0, "align": 0.0, "spec_residual": 0.0}
 
 
 # ---------------------------------------------------------------- component builders
@@ -87,6 +91,16 @@ def component_pde_local(re, frac=0.1, residual_ref=None, patch=1, n=N, std=STD, 
                           residual_ref=residual_ref, patch=patch)
 
 
+def component_spec_residual(re, ref_power=None, kband=HIGHK_BAND, n=N, std=STD, mean=MEAN, dt=DT):
+    """d_spec_residual: high-k (k>=32) NS-residual POWER above the GT floor — kills the residual
+    speckle DDPO adds (physically-inconsistent fine structure) while the spectral energy terms keep
+    the enstrophy. ref_power defaults to the measured GT floor for `re`. GT is the residual minimum
+    so this pulls toward the physical solution, not below it (see diag_residual_landscape)."""
+    ref = ref_power if ref_power is not None else SPEC_RESID_FLOOR.get(int(re))
+    return make_spec_residual_distance(n=n, re=float(re), dt=dt, std=std, mean=mean,
+                                       kband=kband, ref_power=ref)
+
+
 def component_align(align_ref=0.2887, align_scale=0.105, n=N, std=STD, mean=MEAN):
     """d_align: small-scale ORIENTATION statistic vs the GT reference — demands that added high-k
     energy form coherent strain-locked filaments (GT ~0.289, base recon ~0.394, isotropic 0.5) rather
@@ -101,7 +115,7 @@ _STAT_BUILDERS = {
     "energy": component_energy,
     "w1": component_vorticity_w1,
 }
-COMPONENT_NAMES = (*_STAT_BUILDERS.keys(), "pde", "pde_local", "align")
+COMPONENT_NAMES = (*_STAT_BUILDERS.keys(), "pde", "pde_local", "align", "spec_residual")
 
 
 def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
@@ -121,6 +135,8 @@ def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
                                           patch=pde_local_patch, n=n, std=std, mean=mean, dt=dt)
         elif nm == "align":
             fns[nm] = component_align(n=n, std=std, mean=mean)
+        elif nm == "spec_residual":
+            fns[nm] = component_spec_residual(re, n=n, std=std, mean=mean, dt=dt)
         else:
             raise ValueError(f"unknown reward component {nm!r} (known: {COMPONENT_NAMES})")
     return fns
