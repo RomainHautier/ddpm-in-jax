@@ -78,14 +78,17 @@ def main(ckpt, seqs="0", frames=8, re=2000, gt=None, grid_factor=4, seed=1, kcut
     recons = {"base K=1": one(base_params), "base K=3": k3(base_params),
               "DDPO K=1": one(ddpo), "DDPO K=3": k3(ddpo)}
     spectra = {"GT": Eg.mean(0), "input": np.asarray(spec_fn(xin)).mean(0)}
-    print(f"\n{'variant':<10}{'hik_ret':>9}{'placement':>11}{'mean|resid|':>12}")
+    print(f"\n{'variant':<10}{'hik_ret':>9}{'placement':>11}{'MSE':>9}{'mean|resid|':>12}")
     for nm, x0 in recons.items():
         Er = np.asarray(spec_fn(x0)); Eh = local_hik_energy(x0[..., 1] * STD, kcut, sigma)
         hik = float((Er[:, HIK0:].sum(-1) / Eg[:, HIK0:].sum(-1)).mean())
         pl = float(np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1])
         rs = float(np.abs(np.asarray(resid(jnp.asarray(x0) * STD))).mean())
+        mse = float(((x0 - xgt) ** 2).mean())
         spectra[nm] = Er.mean(0)
-        print(f"{nm:<10}{hik:>9.3f}{pl:>11.3f}{rs:>12.2f}", flush=True)
+        print(f"{nm:<10}{hik:>9.3f}{pl:>11.3f}{mse:>9.4f}{rs:>12.2f}", flush=True)
+    print(f"{'GT':<10}{1.000:>9.3f}{1.000:>11.3f}{0.0:>9.4f}"
+          f"{float(np.abs(np.asarray(resid(jnp.asarray(xgt) * STD))).mean()):>12.2f}", flush=True)
 
     kx = np.arange(1, 96)
     col = {"GT": "k", "input": "#c94f4f", "base K=1": "#9498a0", "base K=3": "#5b6169",
