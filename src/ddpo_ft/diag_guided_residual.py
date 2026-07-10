@@ -39,21 +39,26 @@ _k = np.fft.fftfreq(N) * N
 _LOWK = jnp.asarray((np.sqrt(_k[:, None] ** 2 + _k[None, :] ** 2) < 8).astype(np.float32))
 
 
-def make_guided_sampler(unet, alpha_bar, beta_schedule, t_start, dx_func, lam, temp=1.0,
-                        guidance_t_max=50, clip=0.15):
-    """Reverse chain with linear physics guidance, applied ONLY for t <= guidance_t_max (the low-noise
-    late steps where the residual gradient is meaningful; guiding the early noisy steps diverges).
-    Per-step guidance is clipped to +-clip to prevent runaway. lam=0 -> plain sampler."""
+def make_guided_sampler(unet, alpha_bar, beta_schedule, t_start, dx_func, lam, temp=1.0):
+    """Reverse chain with x0-PREDICTED physics guidance (DPS-style). At each step we form the model's
+    clean estimate x0_hat = (x_t - sqrt(1-abar)*eps)/sqrt(abar) and take the residual gradient on THAT
+    (physically meaningful at every noise level -> stable, applied throughout the chain, no clipping
+    needed). lam=0 -> plain sampler."""
     ts = jnp.arange(t_start, 0, -1, dtype=jnp.int32)
 
     def sample(params, x_start, key):
         def step(carry, t):
             x, k = carry
-            dx = jnp.where(t <= guidance_t_max, jnp.clip(lam * dx_func(x), -clip, clip), 0.0)
+            B = x.shape[0]
+            eps = unet.apply({"params": params}, x, jnp.full((B,), t, jnp.int32), train=False)
+            ab_t = alpha_bar[t]
+            alpha_t = 1.0 - beta_schedule[t]
+            x0_hat = (x - jnp.sqrt(1.0 - ab_t) * eps) / jnp.sqrt(ab_t)     # clean estimate
+            dx = lam * dx_func(x0_hat) if lam > 0 else 0.0                 # residual grad on the CLEAN field
+            mean = (1.0 / jnp.sqrt(alpha_t)) * (x - (1.0 - alpha_t) / jnp.sqrt(1.0 - ab_t) * eps)
             k, sk = jax.random.split(k)
-            m, s = policy_mean_std(unet, params, x, t, alpha_bar, beta_schedule, None, 0.0, temp)
             z = jnp.where(t > 1, jax.random.normal(sk, x.shape), jnp.zeros_like(x))
-            return (m + s * z - (dx if lam > 0 else 0.0), k), None
+            return (mean + temp * jnp.sqrt(beta_schedule[t]) * z - dx, k), None
         (x0, _), _ = jax.lax.scan(step, (x_start, key), ts)
         return x0
     return jax.jit(sample)
