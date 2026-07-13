@@ -84,32 +84,37 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
     print(f"{'model':<10}{'guide':>7}{'hik_ret':>9}{'residual':>10}{'MSE':>9}{'placement':>11}{'k*':>5}", flush=True)
 
     def recon(sdict, params):
-        """K=1 single SDEdit chain from t_start, or K=3 renoise/denoise cascade over S_MULTI."""
-        outs = []
+        """Returns {K: recon}. K=1: single SDEdit chain from t_start. k3 mode: renoise/denoise cascade
+        over S_MULTI, capturing the state after chain 2 (= the K=2 result, same noise) AND chain 3 —
+        so K=2 is exactly the intermediate of the K=3 cascade, not a separate run."""
+        outs = {}
         nonlocal key
         for i in range(0, len(xin), batch):
             xc = jnp.asarray(xin[i:i + batch])
             if k3:
-                for Sj in S_MULTI:
+                for j, Sj in enumerate(S_MULTI):
                     saj, s1j = float(jnp.sqrt(ab[Sj])), float(jnp.sqrt(1.0 - ab[Sj]))
                     key, k1, k2 = jax.random.split(key, 3)
                     xc = sdict[Sj](params, saj * xc + s1j * jax.random.normal(k1, xc.shape), k2)
-                outs.append(np.asarray(xc))
+                    if j + 1 >= 2:                                  # end of chain 2 -> K=2, chain 3 -> K=3
+                        outs.setdefault(j + 1, []).append(np.asarray(xc))
             else:
                 key, k1, k2 = jax.random.split(key, 3)
-                outs.append(np.asarray(sdict[t_start](params, sa * xc + s1 * jax.random.normal(k1, xc.shape), k2)))
-        return np.concatenate(outs)
+                outs.setdefault(1, []).append(
+                    np.asarray(sdict[t_start](params, sa * xc + s1 * jax.random.normal(k1, xc.shape), k2)))
+        return {K: np.concatenate(v) for K, v in outs.items()}
 
     for mname, params in (("base", base_params), ("DDPO", ddpo)):
         for gname, smp in (("off", sU), (f"lam{lam:.0f}", sG)):
-            x0 = recon(smp, params)
-            E_r = np.asarray(spec_fn(x0)); Eh = local_hik_energy(x0[..., 1] * STD, HIK0, 6.0)
-            hik = float((E_r[:, HIK0:].sum(-1) / E_gt[:, HIK0:].sum(-1)).mean())
-            R = float(np.abs(np.asarray(resid(jnp.asarray(x0) * STD))).mean())
-            mse = float(((x0 - xgt) ** 2).mean())
-            pl = float(np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1])
-            ks = eff_resolution(E_r.mean(0), E_gt.mean(0))
-            print(f"{mname:<10}{gname:>7}{hik:>9.3f}{R:>10.2f}{mse:>9.4f}{pl:>11.3f}{ks:>5}", flush=True)
+            for K, x0 in sorted(recon(smp, params).items()):
+                E_r = np.asarray(spec_fn(x0)); Eh = local_hik_energy(x0[..., 1] * STD, HIK0, 6.0)
+                hik = float((E_r[:, HIK0:].sum(-1) / E_gt[:, HIK0:].sum(-1)).mean())
+                R = float(np.abs(np.asarray(resid(jnp.asarray(x0) * STD))).mean())
+                mse = float(((x0 - xgt) ** 2).mean())
+                pl = float(np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1])
+                ks = eff_resolution(E_r.mean(0), E_gt.mean(0))
+                tag = f"{mname} K{K}" if k3 else mname
+                print(f"{tag:<10}{gname:>7}{hik:>9.3f}{R:>10.2f}{mse:>9.4f}{pl:>11.3f}{ks:>5}", flush=True)
     print(f"{'GT':<10}{'-':>7}{1.0:>9.3f}{Rg.mean():>10.2f}{0.0:>9.4f}{1.0:>11.3f}{'-':>5}", flush=True)
 
 

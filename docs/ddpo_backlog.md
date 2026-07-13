@@ -109,3 +109,13 @@ raw-init final 0.607 at iter 69 — ~3x faster). Re=2000 0.290 -> 0.381.
 OOD retention/residual edge — the base-DDIM reconstruction is a cleaner spatial prior, so added
 energy lands more accurately. In-dist retention is par at matched iters (train probe overstated it).
 Best OOD combo so far: ddiminit DDPO + lam3. Cost: one extra 20-step DDIM pass per input.
+
+**K-refinement on ddim-init inputs (2026-07-13,** `--base_ddim_init --k3`**, K=2 = end of chain 2 of
+the K=3 cascade, same noise).** Re=1000: base K1/K2/K3 ret .407/.453/.465, place .862/.889/.890
+(HIGHEST measured); DDPO K1/K2/K3 ret .585/1.123/1.194 (OVERSHOOT in-dist, tempered vs raw-init's
+1.333), place .862/.858/.853, MSE .0170/.0236/.0248. Re=2000 OOD: DDPO K1/K2/K3 ret
+.361/.592/.614 (refinement nearly DOUBLES OOD retention), place .868/.834/.822, MSE .0270/.0328/.0340;
++lam3 trims resid 4.35->3.89 (~= base K1). PATTERN: most of the refinement effect arrives at K=2;
+K=3 adds ~+.02 ret for -.01 place / +.001 MSE everywhere -> K=2 is the efficient point (confirms
+backlog #2 hypothesis). Refinement amplifies DDPO's energy lever: harmful in-dist (overshoot),
+strong OOD. Best OOD detail config now: ddiminit DDPO K2 + lam3 (ret .576, resid 3.89, place .823).
