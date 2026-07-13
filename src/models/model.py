@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import linen as nn
 from src.physics_guidance import make_cond_func
+from jax.scipy import stats
 
 
 def sinusoidal_time_embedding(t, dim, max_period=10000):
@@ -21,6 +22,9 @@ def identity_combine_init(ch):
         k = jnp.zeros(shape, dtype)
         return k.at[0,0,:ch, :].set(jnp.eye(ch, dtype=dtype))
     return init
+
+def calc_log_probs(mean, std, xt):
+    return jnp.sum(stats.norm.logpdf(xt, loc=mean, scale=std**2))
 
 
 class DDPMResnet(nn.Module):
@@ -332,11 +336,17 @@ class DDPM:
             
             alpha_bar_t = alpha_bar[t]
             alpha_t = 1 - beta_schedule[t]
-            xt_bwd = (1 / jnp.sqrt(alpha_t)) * (
-                xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred
-            ) + jnp.sqrt(beta_schedule[t]) * z
+            mean = (1 / jnp.sqrt(alpha_t)) * (
+                xT - (1 - alpha_t) / jnp.sqrt(1 - alpha_bar_t) * eps_pred)
+            std = jnp.sqrt(beta_schedule[t])
 
-            return xt_bwd
+            xt_bwd = mean + std * z
+
+            
+            log_prob = calc_log_probs(mean, std, xt_bwd)
+
+
+            return xt_bwd, log_prob
 
         for t in range(T, 0, -1):
             if t % 10 == 0 or t == T:
