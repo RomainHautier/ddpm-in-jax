@@ -131,6 +131,7 @@ if __name__ == "__main__":
     ap.add_argument("--k3", action="store_true", help="K=3 multi-phase recon instead of single SDEdit chain")
     ap.add_argument("--base_ddim_init", action="store_true",
                     help="pre-transform inputs with the frozen-base DDIM reconstruction (matches training)")
+    ap.add_argument("--t_start", type=int, default=100, help="policy SDEdit start level for the recon chains")
     ap.add_argument("--ddim_steps", type=int, default=20)
     ap.add_argument("--ddim_t_start", type=int, default=100)
     main(**vars(ap.parse_args()))
