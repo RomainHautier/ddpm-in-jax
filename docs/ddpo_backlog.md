@@ -85,3 +85,27 @@ flat. Best = DDPO+lam3: ret 0.597, resid 3.32 (~=base), k* 95.
 (-3.5..7%, free, OOD-safe). Combined DDPO+lam3 beats base on every moving metric at both regimes.
 CEILING: residual still 3x GT in-dist (3.3 vs 1.06), 1.25x OOD (3.8 vs 3.01) — nudge not closure;
 temporal-consistency gap needs a structural fix (temporally-coupled training), not reward/guidance.
+
+---
+
+## Base-DDIM-init finetune (2026-07-13) — start DDPO from the base reconstruction, not raw low-res
+
+**Setup.** `--base_ddim_init`: input pool (and probe) pre-denoised ONCE by the FROZEN base via
+deterministic DDIM (SDEdit t=100 -> 20 steps, eta=0, single chain, Hu et al-style); the policy then
+noises/denoises THAT. Eval applies the same transform (`eval_guided_full --base_ddim_init`).
+Re=1000: 300 iters, standard config. Re=2000: 200 iters, fully GT-free (extrap anchor + extrap
+residual floor 26.29, scales_re=1000, align 2.0 = Re=1000 value).
+
+**Training probes** (seq-local, optimistic): Re=1000 0.421 -> 0.661 final (peak 0.669, passed the
+raw-init final 0.607 at iter 69 — ~3x faster). Re=2000 0.290 -> 0.381.
+
+**Full val+test matrix at matched iter0199** (vs raw-init baseline rows):
+- Re=1000: DDPO ret 0.585 (vs 0.607 — PAR, probe gain didn't survive averaging), placement
+  **0.862 vs 0.825** (+0.04, also on the base row), MSE/resid par (0.0170/3.49).
+- Re=2000 OOD: DDPO ret **0.361 vs 0.350**, placement **0.868 vs 0.851**, resid 4.01 vs 4.07,
+  MSE par. +lam3: ret 0.354, resid **3.74** (< base-unguided 3.84), placement 0.865.
+
+**Verdict:** the durable win is PLACEMENT (+0.02..0.04 both regimes, both model rows) plus a small
+OOD retention/residual edge — the base-DDIM reconstruction is a cleaner spatial prior, so added
+energy lands more accurately. In-dist retention is par at matched iters (train probe overstated it).
+Best OOD combo so far: ddiminit DDPO + lam3. Cost: one extra 20-step DDIM pass per input.

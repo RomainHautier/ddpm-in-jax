@@ -98,6 +98,34 @@ def sdedit_start(x_cond, t_start, alpha_bar, key):
     return jnp.sqrt(alpha_bar[t_start]) * x_cond + jnp.sqrt(1.0 - alpha_bar[t_start]) * eps
 
 
+def build_ddim_denoiser(unet, alpha_bar, t_start, n_steps):
+    """Deterministic (eta=0) DDIM reverse chain t_start -> ~0 over `n_steps`, single chain — faithful to
+    BaratiLab functions/denoising_step.ddim_steps (Hu et al-style accelerated schedule). Returns a jitted
+    denoise(params, x_start) -> x0_pred, where x_start is the SDEdit-noised (to t_start) conditioning field
+    and x0_pred is the model's reconstruction. For the base-DDIM finetuning init we run this with the FROZEN
+    base params to seed the policy off a clean on-manifold reconstruction instead of the raw low-res."""
+    raw = [int(round(t_start - i * (t_start - 1) / max(n_steps - 1, 1))) for i in range(n_steps)]
+    seq = sorted({t for t in raw if t >= 1}, reverse=True)        # descending unique timesteps, >= 1
+    t_cur = jnp.asarray(seq[:-1], dtype=jnp.int32)
+    t_nxt = jnp.asarray(seq[1:], dtype=jnp.int32)
+    t_last = int(seq[-1])
+
+    def _x0(params, x, t):
+        eps = unet.apply({"params": params}, x, jnp.full((x.shape[0],), t, jnp.int32), train=False)
+        return (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t]), eps
+
+    def denoise(params, x_start):
+        def step(x, ts):
+            tc, tn = ts
+            x0, eps = _x0(params, x, tc)
+            ab_n = alpha_bar[tn]
+            return jnp.sqrt(ab_n) * x0 + jnp.sqrt(1.0 - ab_n) * eps, None   # eta=0 deterministic step
+        x, _ = jax.lax.scan(step, x_start, (t_cur, t_nxt))
+        x0, _ = _x0(params, x, t_last)                                      # final clean estimate
+        return x0
+    return jax.jit(denoise)
+
+
 def build_rollout(unet, alpha_bar, beta_schedule, t_start, cond_func=None, cond_strength=0.0, temp=1.0):
     """Return a jitted rollout(params, x_start, key) -> (states, actions, logp_old, ts, x0) using
     lax.scan over the T=t_start reverse steps (no Python unrolling). Collection only (no grad);

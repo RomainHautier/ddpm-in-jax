@@ -72,10 +72,13 @@ def _degrade(seq, s, grid_factor):
     return grid_downsample_degrade(seq, grid_factor) if grid_factor else sparse_nnfill_degrade(seq, s)
 
 
-def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, grid_factor=None):
+def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, grid_factor=None,
+                          base_denoise=None):
     """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED nnfill input triplets, drawn from the given
     Re=1000 sequences. grid_factor=None -> random-1024 task degradation; else clean grid-`factor`
-    (e.g. 4 -> 4096-pt regular grid). Each triplet is one conditioning field; cycles forever."""
+    (e.g. 4 -> 4096-pt regular grid). Each triplet is one conditioning field; cycles forever.
+    base_denoise: optional (pool)->pool callable that replaces the raw low-res pool with the frozen-base
+    DDIM reconstruction (the base-DDIM finetuning init)."""
     rng = np.random.default_rng(seed)
     pools = []
     for s in seqs:
@@ -85,6 +88,9 @@ def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, g
     pool = np.concatenate(pools, axis=0)
     print(f"input pool: {pool.shape} triplets from seqs {list(seqs)} "
           f"(degrade={'grid'+str(grid_factor)+'x' if grid_factor else 'random-1024'})", flush=True)
+    if base_denoise is not None:
+        pool = base_denoise(pool)                             # low-res -> frozen-base DDIM reconstruction
+        print(f"    base-DDIM init: input pool replaced with base reconstruction -> {pool.shape}", flush=True)
     while True:
         idx = rng.choice(len(pool), n_inputs, replace=False)
         yield jnp.asarray(pool[idx], dtype=jnp.float32)
@@ -102,27 +108,32 @@ def save_ckpt(params, opt_state, outer, save_dir):
     print(f"    saved {path}", flush=True)
 
 
-def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH, grid_factor=None):
+def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH, grid_factor=None, base_denoise=None):
     """Fixed held-out probe: (nnfill-input triplets, GT triplets) for the live GT-retention curve.
-    grid_factor matches the training degradation so the probe reflects the same regime."""
+    grid_factor matches the training degradation so the probe reflects the same regime.
+    base_denoise: same base-DDIM transform as training, applied to the probe inputs for consistency."""
     seq = load_sequence(gt_path, seq_id)
     inp = build_triplets(_degrade(seq, seq_id, grid_factor), MEAN, STD)
     gt = build_triplets(seq, MEAN, STD)
     idx = np.linspace(0, len(inp) - 1, n).astype(int)
-    return jnp.asarray(inp[idx]), jnp.asarray(gt[idx])
+    probe = inp[idx]
+    if base_denoise is not None:
+        probe = base_denoise(probe)                          # match the base-DDIM training init
+    return jnp.asarray(probe), jnp.asarray(gt[idx])
 
 
 def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
-         spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None):
+         spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
+         base_ddim_init=False, ddim_steps=20, ddim_t_start=100):
     import json
     import pickle
     import jax
     from src.rewards import make_spectrum_fn
 
     cfg = RE_CFG[re]
-    save_dir = save_dir or f"monitoring/ddpo_re{re}_ckpts"
+    save_dir = save_dir or f"monitoring/ddpo_re{re}{'_ddiminit' if base_ddim_init else ''}_ckpts"
     stats_path = stats or cfg["stats"]                     # override -> extrapolated anchor (no target data)
     print(f"=== REGIME Re={re} | gt={cfg['gt']} train_seqs={cfg['train_seqs']} probe_seq={cfg['probe_seq']} "
           f"-> {save_dir} ===", flush=True)
@@ -172,6 +183,28 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
 
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(lr))
     ddpm, base_orig, _ = build_base_ddpm()
+
+    # EXPERIMENT: base-DDIM init. Instead of feeding the raw low-res as the conditioning field, first
+    # reconstruct it with a FROZEN-base deterministic DDIM chain (SDEdit t=ddim_t_start -> 0, ddim_steps,
+    # single chain) and finetune off THAT on-manifold reconstruction. Pool + probe are transformed once.
+    base_denoise = None
+    if base_ddim_init:
+        from ppo_claude import build_ddim_denoiser
+        ab = ddpm.alpha_bar
+        _ddim = build_ddim_denoiser(ddpm.unet, ab, ddim_t_start, ddim_steps)
+        _sa, _s1 = float(jnp.sqrt(ab[ddim_t_start])), float(jnp.sqrt(1.0 - ab[ddim_t_start]))
+        _dkey = jax.random.PRNGKey(12345)
+
+        def base_denoise(pool, _bs=16):
+            out = []
+            for i in range(0, len(pool), _bs):
+                xb = jnp.asarray(pool[i:i + _bs], dtype=jnp.float32)
+                xs = _sa * xb + _s1 * jax.random.normal(jax.random.fold_in(_dkey, i), xb.shape)
+                out.append(np.asarray(_ddim(base_orig, xs)))
+            return np.concatenate(out, axis=0)
+        print(f"    BASE-DDIM INIT: SDEdit t={ddim_t_start} -> DDIM {ddim_steps} steps (eta=0, single chain) "
+              f"with frozen base; finetune starts from the base reconstruction, not raw low-res", flush=True)
+
     if resume:                                                # continue a checkpoint (keep TRUE base for KL)
         ck = pickle.load(open(resume, "rb"))
         start_iter = ck["iter"] + 1
@@ -186,7 +219,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                               sampling_temp=temp)
 
     inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs,
-                                    grid_factor=grid_factor)
+                                    grid_factor=grid_factor, base_denoise=base_denoise)
     print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: t_start={t_start} B={n_inputs*group_size} "
           f"n_inner={n_inner} start={start_iter} n_outer={n_outer} lr={lr} temp={temp} kl={kl} "
           f"save/{save_every} eval/{eval_every} ===", flush=True)
@@ -195,7 +228,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     spec_fn = make_spectrum_fn(N)
     hik_ret = lambda recon, gt: float((np.asarray(spec_fn(recon))[:, 32:].sum(-1)
                                        / np.asarray(spec_fn(gt))[:, 32:].sum(-1)).mean())
-    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"], grid_factor=grid_factor)
+    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"], grid_factor=grid_factor,
+                                        base_denoise=base_denoise)
     base_hik = None if smoke else hik_ret(
         trainer.probe_x0(probe_inp, jax.random.PRNGKey(7),
                          params=jax.tree_util.tree_map(lambda a: a[0], trainer.base_params)), probe_gt)
@@ -257,4 +291,8 @@ if __name__ == "__main__":
                     help="weight for the pde residual term (>1 = pde-heavy: attack the temporal-balance residual)")
     ap.add_argument("--grid_factor", type=int, default=None,
                     help="clean grid-N downsample for the INPUT instead of random-1024 (e.g. 4 -> 4096 pts)")
+    ap.add_argument("--base_ddim_init", action="store_true",
+                    help="finetune off the frozen-base DDIM reconstruction of the low-res, not the raw low-res")
+    ap.add_argument("--ddim_steps", type=int, default=20, help="DDIM steps for the base pre-denoise (eta=0)")
+    ap.add_argument("--ddim_t_start", type=int, default=100, help="SDEdit start level for the base pre-denoise")
     main(**vars(ap.parse_args()))
