@@ -64,6 +64,83 @@ def make_guided_sampler(unet, alpha_bar, beta_schedule, t_start, dx_func, lam, t
     return jax.jit(sample)
 
 
+def make_strided_guided_sampler(unet, alpha_bar, t_start, n_steps, dx_func, lam):
+    """Accelerated reverse chain: eta=0 DDIM over a strided subsequence t_start -> ~0 in `n_steps`
+    steps (same schedule construction as ppo_claude.build_ddim_denoiser), with x0-predicted guidance
+    applied in x0 space at each visited step. Deterministic — `key` accepted for signature
+    compatibility with make_guided_sampler but unused. NOTE: guidance fires n_steps times (vs t_start
+    times in the stepwise sampler), so the same lam gives a proportionally weaker total nudge."""
+    raw = [int(round(t_start - i * (t_start - 1) / max(n_steps - 1, 1))) for i in range(n_steps)]
+    seq = sorted({t for t in raw if t >= 1}, reverse=True)
+    t_cur = jnp.asarray(seq[:-1], dtype=jnp.int32)
+    t_nxt = jnp.asarray(seq[1:], dtype=jnp.int32)
+    t_last = int(seq[-1])
+
+    def _x0g(params, x, t):
+        eps = unet.apply({"params": params}, x, jnp.full((x.shape[0],), t, jnp.int32), train=False)
+        x0 = (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t])
+        if lam > 0:
+            x0 = x0 - lam * dx_func(x0)
+        return x0, eps
+
+    def sample(params, x_start, key=None):
+        def step(x, ts_pair):
+            tc, tn = ts_pair
+            x0, eps = _x0g(params, x, tc)
+            return jnp.sqrt(alpha_bar[tn]) * x0 + jnp.sqrt(1.0 - alpha_bar[tn]) * eps, None
+        x, _ = jax.lax.scan(step, x_start, (t_cur, t_nxt))
+        x0, _ = _x0g(params, x, t_last)
+        return x0
+    return jax.jit(sample)
+
+
+def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
+                             eta=1.0, temp=1.0):
+    """Inference-side mirror of ppo_claude.build_ddim_rollout: stochastic-DDIM (Song eq.16) K-chain
+    sampler — chain j from chain_starts[j] (descending), schedules from kchain_schedules (n_steps
+    total budget split proportionally), deterministic x0-prediction per chain, renoise (forward q)
+    between chains, reward x0 from the last chain. Optional x0-predicted guidance: subtract
+    lam*dx(x0_hat) inside every step's mean and at each chain-final prediction. temp=1.0/eta=1.0 =
+    the training probe's eval convention. sample(params, x_start, key) with x_start noised to
+    chain_starts[0]."""
+    from ppo_claude import kchain_schedules
+    starts = [int(s) for s in chain_starts]
+    scheds = kchain_schedules(starts, n_steps)
+    pairs = [(jnp.asarray(s[:-1], dtype=jnp.int32), jnp.asarray(s[1:], dtype=jnp.int32), int(s[-1]))
+             for s in scheds]
+    renoise_coef = [(float(jnp.sqrt(alpha_bar[S])), float(jnp.sqrt(1.0 - alpha_bar[S])))
+                    for S in starts[1:]]
+
+    def _x0hat(params, x, t):
+        eps = unet.apply({"params": params}, x, jnp.full((x.shape[0],), t, jnp.int32), train=False)
+        x0 = (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t])
+        if lam > 0:
+            x0 = x0 - lam * dx_func(x0)
+        return x0, eps
+
+    def sample(params, x_start, key):
+        def step(carry, ts):
+            x, k = carry
+            tc, tn = ts
+            k, sk = jax.random.split(k)
+            x0, eps = _x0hat(params, x, tc)
+            ab_c, ab_n = alpha_bar[tc], alpha_bar[tn]
+            sigma = eta * jnp.sqrt((1.0 - ab_n) / (1.0 - ab_c)) * jnp.sqrt(1.0 - ab_c / ab_n)
+            mean = jnp.sqrt(ab_n) * x0 + jnp.sqrt(1.0 - ab_n - sigma ** 2) * eps
+            return (mean + temp * sigma * jax.random.normal(sk, x.shape), k), None
+
+        x = x_start
+        for j, (tc, tn, tl) in enumerate(pairs):
+            key, k_scan, k_re = jax.random.split(key, 3)
+            (x_low, _), _ = jax.lax.scan(step, (x, k_scan), (tc, tn))
+            x0, _ = _x0hat(params, x_low, tl)
+            if j < len(pairs) - 1:
+                sa, s1 = renoise_coef[j]
+                x = sa * x0 + s1 * jax.random.normal(k_re, x0.shape)
+        return x0
+    return jax.jit(sample)
+
+
 def main(ckpt, seqs="32,36", frames=6, t_start=100, re=1000, gt=None, grid_factor=4, seed=1,
          lams="0,10,30,100,200"):
     lams = [float(x) for x in lams.split(",")]

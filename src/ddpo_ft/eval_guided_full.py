@@ -36,7 +36,14 @@ S_MULTI = [150, 100, 50]
 
 def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", grid_factor=4,
          lam=3.0, n_per_seq=8, batch=16, t_start=100, seed=0, k3=False,
-         base_ddim_init=False, ddim_steps=20, ddim_t_start=100):
+         base_ddim_init=False, ddim_steps=20, ddim_t_start=100, n_steps=None, s_multi=None,
+         sampler="ddpm", chain_starts=None, policy_ddim_steps=50, eta=1.0):
+    global S_MULTI
+    if s_multi:
+        S_MULTI = [int(x) for x in str(s_multi).split(",")]
+    if chain_starts:
+        chain_starts = [int(x) for x in str(chain_starts).split(",")]
+        t_start = chain_starts[0]                              # x_start is noised to the first chain level
     gt = gt or "flow-data/kf_2d_re1000_256_40seed.npy"
     seqs = [int(x) for x in (val + "," + test).split(",")]
     ddpm, base_params, _ = build_base_ddpm()
@@ -47,8 +54,24 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
     spec_fn = make_spectrum_fn(N)
     sa, s1 = float(jnp.sqrt(ab[t_start])), float(jnp.sqrt(1.0 - ab[t_start]))
     levels = sorted({t_start, *S_MULTI}) if k3 else [t_start]
-    sU = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx, 0.0) for t in levels}
-    sG = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx, lam) for t in levels}
+    if sampler == "ddim":
+        # stochastic-DDIM K-chain inference, matched to build_ddim_rollout training (eta, ~n_steps
+        # budget over chain_starts). Single recon call; the chain logic lives inside the sampler.
+        assert not k3 and not n_steps, "--sampler ddim replaces --k3/--n_steps"
+        from diag_guided_residual import make_kchain_ddim_sampler
+        cs = chain_starts or [t_start]
+        sU = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, 0.0, eta=eta)}
+        sG = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, lam, eta=eta)}
+    elif n_steps:
+        # accelerated inference: strided eta=0 DDIM chains (n_steps per chain) instead of the full
+        # stochastic stepwise reverse process
+        assert not k3, "--n_steps with --k3 not supported"
+        from diag_guided_residual import make_strided_guided_sampler
+        sU = {t: make_strided_guided_sampler(ddpm.unet, ab, t, n_steps, dx, 0.0) for t in levels}
+        sG = {t: make_strided_guided_sampler(ddpm.unet, ab, t, n_steps, dx, lam) for t in levels}
+    else:
+        sU = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx, 0.0) for t in levels}
+        sG = {t: make_guided_sampler(ddpm.unet, ab, ddpm.beta_schedule, t, dx, lam) for t in levels}
 
     xin, xgt = [], []
     for s in seqs:
@@ -78,7 +101,9 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
     E_gt = np.asarray(spec_fn(jnp.asarray(xgt))); Ehg = local_hik_energy(xgt[..., 1] * STD, HIK0, 6.0)
     Rg = np.abs(np.asarray(resid(jnp.asarray(xgt) * STD)))
     key = jax.random.PRNGKey(seed)
-    print(f"\n=== Re={re} grid-{grid_factor}x  K={3 if k3 else 1}{'  DDIM-INIT' if base_ddim_init else ''}  "
+    print(f"\n=== Re={re} grid-{grid_factor}x  K={3 if k3 else 1}{'  DDIM-INIT' if base_ddim_init else ''}"
+          f"{f'  STRIDED-{n_steps}steps' if n_steps else ''}{f'  S={S_MULTI}' if k3 else ''}"
+          f"{f'  DDIM-POLICY S={chain_starts} ~{policy_ddim_steps}steps eta={eta}' if sampler == 'ddim' else ''}  "
           f"{len(xgt)} frames (seqs {seqs}, {n_per_seq}/seq)  "
           f"guidance lam={lam}  |  GT: residual {Rg.mean():.2f} ===", flush=True)
     print(f"{'model':<10}{'guide':>7}{'hik_ret':>9}{'residual':>10}{'MSE':>9}{'placement':>11}{'k*':>5}", flush=True)
@@ -132,6 +157,15 @@ if __name__ == "__main__":
     ap.add_argument("--base_ddim_init", action="store_true",
                     help="pre-transform inputs with the frozen-base DDIM reconstruction (matches training)")
     ap.add_argument("--t_start", type=int, default=100, help="policy SDEdit start level for the recon chains")
+    ap.add_argument("--n_steps", type=int, default=None,
+                    help="accelerated inference: strided eta=0 DDIM with this many steps (default: full chain)")
+    ap.add_argument("--s_multi", type=str, default=None,
+                    help="override the K=3 cascade levels, e.g. 100,50,30 (default 150,100,50)")
+    ap.add_argument("--sampler", type=str, default="ddpm", choices=["ddpm", "ddim"],
+                    help="ddim = stochastic-DDIM K-chain inference matched to build_ddim_rollout training")
+    ap.add_argument("--chain_starts", type=str, default=None, help="e.g. 100,75 (with --sampler ddim)")
+    ap.add_argument("--policy_ddim_steps", type=int, default=50, help="total DDIM step budget across chains")
+    ap.add_argument("--eta", type=float, default=1.0)
     ap.add_argument("--ddim_steps", type=int, default=20)
     ap.add_argument("--ddim_t_start", type=int, default=100)
     main(**vars(ap.parse_args()))

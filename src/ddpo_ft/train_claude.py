@@ -126,14 +126,30 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
-         base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None):
+         base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
+         sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None):
     import json
     import pickle
     import jax
     from src.rewards import make_spectrum_fn
 
     cfg = RE_CFG[re]
-    save_dir = save_dir or f"monitoring/ddpo_re{re}{'_ddiminit' if base_ddim_init else ''}_ckpts"
+    save_dir = save_dir or (f"monitoring/ddpo_re{re}{'_ddiminit' if base_ddim_init else ''}"
+                            f"{'_ddimpolicy' if sampler == 'ddim' else ''}"
+                            f"{f'_k{len(chain_starts)}chain' if chain_starts else ''}_ckpts")
+    if sampler == "ddim":
+        print(f"    DDIM POLICY: stochastic-DDIM chain, ~{policy_ddim_steps} steps, eta={eta} "
+              f"(trajectory memory ~{policy_ddim_steps}/{t_start or 100} of the DDPM policy)", flush=True)
+    if chain_starts:
+        from ppo_claude import kchain_schedules
+        _sch = kchain_schedules(chain_starts, policy_ddim_steps, ddim_stride)
+        _steps = "+".join(str(len(s) - 1) for s in _sch)
+        budget = (f"stride {ddim_stride} in t -> {_steps} policy steps" if ddim_stride else
+                  f"{_steps} policy steps (~{policy_ddim_steps} total budget split "
+                  f"proportionally to start t)")
+        print(f"    MULTI-PHASE: K={len(chain_starts)} chains from S={list(chain_starts)} "
+              f"(K=3 eval used S=[150,100,50]); {budget}; renoise between chains carries no "
+              f"log-prob (theta-free forward q)", flush=True)
     stats_path = stats or cfg["stats"]                     # override -> extrapolated anchor (no target data)
     print(f"=== REGIME Re={re} | gt={cfg['gt']} train_seqs={cfg['train_seqs']} probe_seq={cfg['probe_seq']} "
           f"-> {save_dir} ===", flush=True)
@@ -182,6 +198,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         # of the DDIM recon's placement signal vs 59% at the default 100; chains half as long)
         t_start, n_inputs, group_size, n_inner, temp, kl = t_start or 100, nd, 8, 4, 1.5, 0.01
         n_outer = n_outer or 300
+    if chain_starts:
+        t_start = int(chain_starts[0])    # multi-phase: SDEdit level = first chain's start
 
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(lr))
     ddpm, base_orig, _ = build_base_ddpm()
@@ -212,17 +230,22 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         start_iter = ck["iter"] + 1
         trainer = DDPOTrainer(ddpm, ck["params"], reward, optimizer, group_size=group_size,
                               t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=start_iter,
-                              sampling_temp=temp, base_params=base_orig, opt_state=ck["opt_state"])
+                              sampling_temp=temp, base_params=base_orig, opt_state=ck["opt_state"],
+                              sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
+                              chain_starts=chain_starts, ddim_stride=ddim_stride)
         print(f"RESUMED from {resume} at iter {start_iter}", flush=True)
     else:
         start_iter = 0
         trainer = DDPOTrainer(ddpm, base_orig, reward, optimizer, group_size=group_size,
                               t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=0,
-                              sampling_temp=temp)
+                              sampling_temp=temp, sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
+                              chain_starts=chain_starts, ddim_stride=ddim_stride)
 
     inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs,
                                     grid_factor=grid_factor, base_denoise=base_denoise)
-    print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: t_start={t_start} B={n_inputs*group_size} "
+    samp = (f"ddim({policy_ddim_steps} steps, eta={eta}"
+            f"{f', S={list(chain_starts)}' if chain_starts else ''})" if sampler == "ddim" else "ddpm")
+    print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: sampler={samp} t_start={t_start} B={n_inputs*group_size} "
           f"n_inner={n_inner} start={start_iter} n_outer={n_outer} lr={lr} temp={temp} kl={kl} "
           f"save/{save_every} eval/{eval_every} ===", flush=True)
 
@@ -247,8 +270,9 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         gi = start_iter + outer
         m = trainer.train_iter(next(inputs))
         comp = "  ".join(f"{k}={v:.3f}" for k, v in m["components"].items())
-        print(f"[{gi:04d}] R={m['reward_mean']:.3f}±{m['reward_std']:.3f} |A|={m['adv_abs_mean']:.2f} "
-              f"loss {m['loss_first']:.3f}->{m['loss_last']:.3f}  {comp}", flush=True)
+        print(f"[{gi:04d}] R={m['reward_mean']:.3f}±{m['reward_std']:.3f} gstd={m['group_r_std']:.3f} "
+              f"|A|={m['adv_abs_mean']:.2f} loss {m['loss_first']:.3f}->{m['loss_last']:.3f}  {comp}",
+              flush=True)
         rec = {"iter": gi, **{k: v for k, v in m.items() if k != "components"},
                **{f"c_{k}": v for k, v in m["components"].items()}}
         if not smoke and (gi + 1) % eval_every == 0:          # live GT-retention probe
@@ -300,4 +324,23 @@ if __name__ == "__main__":
     ap.add_argument("--t_start", type=int, default=None,
                     help="policy SDEdit start level (default 100; renoise study -> 50 keeps 93% of the "
                          "DDIM recon's placement signal and halves the chain)")
+    ap.add_argument("--sampler", type=str, default="ddpm", choices=["ddpm", "ddim"],
+                    help="policy chain: 'ddpm' (every step) or 'ddim' (stochastic DDIM over "
+                         "~policy_ddim_steps subsampled steps; shorter trajectory, less memory)")
+    ap.add_argument("--policy_ddim_steps", type=int, default=20,
+                    help="number of subsampled steps for the DDIM POLICY (distinct from --ddim_steps, "
+                         "which is the eta=0 base pre-denoise of --base_ddim_init)")
+    ap.add_argument("--eta", type=float, default=1.0,
+                    help="DDIM policy stochasticity in (0, 1]; eta=1 = DDPM posterior std on the coarse "
+                         "schedule. Must be > 0 (eta=0 is deterministic -> no valid log-prob/ratio)")
+    ap.add_argument("--chain_starts", type=int, nargs="+", default=None,
+                    help="multi-phase renoise-and-denoise starts, strictly descending (DDIM policy "
+                         "only), e.g. '--chain_starts 150 100' for K=2 or '150 100 50' = the K=3 eval "
+                         "S. Overrides --t_start with the first value; policy_ddim_steps is the TOTAL "
+                         "budget split proportionally to start t. Renoise between chains carries no "
+                         "log-prob/gradient. NOT group_size (samples-per-input)")
+    ap.add_argument("--ddim_stride", type=int, default=None,
+                    help="fixed t-interval per DDIM policy step (e.g. 10 -> chain from S runs "
+                         "[S, S-10, ..., 10, 1] = S/10 steps). Overrides policy_ddim_steps. With "
+                         "'--chain_starts 150 100 50 --ddim_stride 10' -> 15+10+5=30 policy steps")
     main(**vars(ap.parse_args()))

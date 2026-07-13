@@ -110,6 +110,40 @@ OOD retention/residual edge — the base-DDIM reconstruction is a cleaner spatia
 energy lands more accurately. In-dist retention is par at matched iters (train probe overstated it).
 Best OOD combo so far: ddiminit DDPO + lam3. Cost: one extra 20-step DDIM pass per input.
 
+**t_start=50 intervention (2026-07-13) — REFUTES the "preserve start-state signal" implication.**
+Renoise study said t=50 keeps 93% of the DDIM recon's placement signal (vs 59% at t=100) -> ran the
+t=50 ddim-init finetune (300 iters, 21.5s/iter vs 43). Result: probe 0.411 -> 0.507 (vs t=100's
+0.661); reward plateaued ~-10.4 vs -7.9, spec_highk STUCK at ~1.2 (t=100 drove it to 0.45).
+`diag_group_hik_std` (frozen base, groups of 8, seqs 32/36/38): within-group CV of E(k>=32) scales
+~linearly with t_start (1.14% @50, 2.13% @75, 3.04% @100) — at t=50 rollout groups are near-clones
+in the reward band -> no advantage signal (USER HYPOTHESIS 2 CONFIRMED). temp 2.5 does NOT fix it:
+absolute spread doubles but CV flat — the group shifts TOGETHER (hot-sampling speckle), no
+differential signal (HYPOTHESIS 1 REFUTED). Eval matrix (t=50 recipe): DDPO ret 0.481, place 0.818,
+MSE 0.0156 — placement is WORSE than t=100's 0.862 despite the 93% signal survival, and even base
+placement rises with chain depth (recon clean 0.745 -> base@t50 0.823 -> base@t100 0.862): final
+placement is CHAIN-GENERATED (denoising manifold work), not start-inherited. Start-state signal
+survival is the wrong optimization target. VERDICT: keep t_start=100; t=75 unpromising (trades
+exploration for signal that doesn't matter); t=50 only as a conservative low-MSE point (0.0156).
+
+**K-chain DDIM-policy training (2026-07-13) — THE RESIDUAL FINALLY MOVES.** Policy = stochastic-DDIM
+(eta=1, ~50-step budget) K=2 cascade S=[100->75], renoise between chains theta-free
+(`build_ddim_rollout`); 300 iters from raw-LR and from ddim-init inputs. Rewards reach -4.1/-3.6 (vs
+-7.9 best DDPM-policy). Matched eval (`eval_guided_full --sampler ddim --chain_starts 100,75`):
+**PDE residual 3.3-3.5 -> 1.61-1.73 (GT floor 1.06)** — most of it from the inference process itself
+(base rows too: coarse chain + final deterministic x0-prediction = conditional mean, suppresses the
+residual-carrying sampled texture; caveat: k* 95 -> 36-40, some fine-scale sample realism traded).
+DDPO adds ret +0.11-0.12 at record placement (0.883-0.888). Raw-LR ~ ddim-init under chain training
+(first chain does the reconstruction work). NEW BEST (physicality-first): k2-chain ddim-init DDPO
++lam3 = ret 0.528 / resid 1.62 / MSE 0.0167 / place 0.883 at half inference compute. Detail-first
+alternative: gentle cascade (below). Next: K=3 [100,50,30] chain training; retention-weighted reward
+to close the k* gap.
+
+**Gentle decreasing cascade S=[100,50,30] (2026-07-13, user-proposed, `--s_multi`) — best in-dist
+DDPM-policy config.** Deep exploration once then two conservative refinements: ret 0.675 (NO
+overshoot vs 1.19 for [150,100,50]), placement 0.877 (DDPO record; base rows 0.886-0.888), +lam3
+resid 3.39. OOD balanced middle (0.401/0.863). Deep-once-then-refine beats deep-repeatedly.
+Also: single-chain t_start at inference = enhancement dial (t=30 ~= raw DDIM recon, t=100 = full).
+
 **K-refinement on ddim-init inputs (2026-07-13,** `--base_ddim_init --k3`**, K=2 = end of chain 2 of
 the K=3 cascade, same noise).** Re=1000: base K1/K2/K3 ret .407/.453/.465, place .862/.889/.890
 (HIGHEST measured); DDPO K1/K2/K3 ret .585/1.123/1.194 (OVERSHOOT in-dist, tempered vs raw-init's
