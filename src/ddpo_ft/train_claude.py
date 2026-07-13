@@ -126,7 +126,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
-         base_ddim_init=False, ddim_steps=20, ddim_t_start=100):
+         base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None):
     import json
     import pickle
     import jax
@@ -175,10 +175,12 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     nd = jax.local_device_count()
     print(f"data-parallel over {nd} device(s)", flush=True)
     if smoke:
-        t_start, n_inputs, group_size, n_inner, temp, kl = 3, nd, 2, 2, 1.5, 0.01
+        t_start, n_inputs, group_size, n_inner, temp, kl = t_start or 3, nd, 2, 2, 1.5, 0.01
         n_outer = n_outer or 2
     else:
-        t_start, n_inputs, group_size, n_inner, temp, kl = 100, nd, 8, 4, 1.5, 0.01
+        # t_start override: policy SDEdit start level (renoise-decorrelation study -> t=50 keeps 93%
+        # of the DDIM recon's placement signal vs 59% at the default 100; chains half as long)
+        t_start, n_inputs, group_size, n_inner, temp, kl = t_start or 100, nd, 8, 4, 1.5, 0.01
         n_outer = n_outer or 300
 
     optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(lr))
@@ -295,4 +297,7 @@ if __name__ == "__main__":
                     help="finetune off the frozen-base DDIM reconstruction of the low-res, not the raw low-res")
     ap.add_argument("--ddim_steps", type=int, default=20, help="DDIM steps for the base pre-denoise (eta=0)")
     ap.add_argument("--ddim_t_start", type=int, default=100, help="SDEdit start level for the base pre-denoise")
+    ap.add_argument("--t_start", type=int, default=None,
+                    help="policy SDEdit start level (default 100; renoise study -> 50 keeps 93% of the "
+                         "DDIM recon's placement signal and halves the chain)")
     main(**vars(ap.parse_args()))
