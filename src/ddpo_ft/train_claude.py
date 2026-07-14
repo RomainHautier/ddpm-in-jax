@@ -127,7 +127,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
-         sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None):
+         sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
+         highk_lo=32):
     import json
     import pickle
     import jax
@@ -182,10 +183,14 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         print(f"    spec_residual ACTIVE: weight={spec_residual_weight} (penalize k>=32 NS-residual power "
               f"above GT floor {SPEC_RESID_FLOOR.get(re):.2e} — kill the residual speckle, keep the energy)",
               flush=True)
+    if highk_lo != 32:
+        print(f"    EXTENDED HIGH-K BAND: spec_highk over k in [{highk_lo}, 96) — the energy deficit "
+              f"starts ~k=10 (deep-cascade spectra), not 32; same scale/weight, wider gradient coverage",
+              flush=True)
     reward = Reward.from_calibration(
         stats_path, "base_results/reward_calibration.json",
         re=re, weights=exp2_weights, pde_hinge=True, scales_re=scales_re,
-        pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch)
+        pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=(highk_lo, 96))
     print("reward weights:", reward.weights, "| pde_hinge=True", flush=True)
 
     nd = jax.local_device_count()
@@ -343,4 +348,7 @@ if __name__ == "__main__":
                     help="fixed t-interval per DDIM policy step (e.g. 10 -> chain from S runs "
                          "[S, S-10, ..., 10, 1] = S/10 steps). Overrides policy_ddim_steps. With "
                          "'--chain_starts 150 100 50 --ddim_stride 10' -> 15+10+5=30 policy steps")
+    ap.add_argument("--highk_lo", type=int, default=32,
+                    help="lower edge of the spec_highk reward band (default 32; 10 = extend to where "
+                         "the energy deficit starts)")
     main(**vars(ap.parse_args()))

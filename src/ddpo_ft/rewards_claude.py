@@ -119,13 +119,18 @@ COMPONENT_NAMES = (*_STAT_BUILDERS.keys(), "pde", "pde_local", "align", "spec_re
 
 
 def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
-                     std=STD, mean=MEAN, dt=DT, pde_hinge=False, pde_local_frac=0.1, pde_local_patch=1):
+                     std=STD, mean=MEAN, dt=DT, pde_hinge=False, pde_local_frac=0.1, pde_local_patch=1,
+                     highk_band=HIGHK_BAND):
     """{name: jitted fn(x)->(B,)} for the requested components. `pde`/`pde_local` need `re`.
     pde_hinge=True -> one-sided pde. pde_local -> localized (worst-`frac`) residual; pde_local_patch
-    (P) targets worst PxP regions instead of pixels (P=1 default; P=2..4 matches the ~3px scale)."""
+    (P) targets worst PxP regions instead of pixels (P=1 default; P=2..4 matches the ~3px scale).
+    highk_band: the spec_highk shell band — (32,96) default; (10,96) extends the heavy spectrum term
+    down to where the energy deficit actually starts (deep-cascade spectra, 2026-07-14)."""
     fns = {}
     for nm in names:
-        if nm in _STAT_BUILDERS:
+        if nm == "spec_highk":
+            fns[nm] = component_spectrum_highk(stats, highk_band=highk_band)
+        elif nm in _STAT_BUILDERS:
             fns[nm] = _STAT_BUILDERS[nm](stats)
         elif nm == "pde":
             fns[nm] = component_pde_residual(re, residual_ref=residual_ref, n=n, std=std, mean=mean,
@@ -162,12 +167,13 @@ class Reward:
 
     def __init__(self, stats, re, weights=None, scales=None, names=COMPONENT_NAMES,
                  residual_ref=None, n=N, std=STD, mean=MEAN, dt=DT, pde_hinge=False, pde_local_frac=0.1,
-                 pde_local_patch=1):
+                 pde_local_patch=1, highk_band=HIGHK_BAND):
         self.re = float(re)
         self.names = tuple(names)
         self.component_fns = build_components(stats, re, names=names, residual_ref=residual_ref,
                                               n=n, std=std, mean=mean, dt=dt, pde_hinge=pde_hinge,
-                                              pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch)
+                                              pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch,
+                                              highk_band=highk_band)
         self.weights = {**DEFAULT_WEIGHTS, **(weights or {})}
         self.scales = dict(scales or {})
 
@@ -180,7 +186,7 @@ class Reward:
     @classmethod
     def from_calibration(cls, stats_path, calib_path, re, names=COMPONENT_NAMES, weights=None,
                          pde_hinge=False, scales_re=None, residual_ref=None,
-                         pde_local_frac=0.1, pde_local_patch=1):
+                         pde_local_frac=0.1, pde_local_patch=1, highk_band=HIGHK_BAND):
         """Build from the on-disk artifacts: a regime_stats_re{Re}.npz and reward_calibration.json.
         Pulls the per-Re `scales` and the regime `residual_ref` from the calibration json, and uses
         d_pde_lr (log-ratio) mode. `weights` overrides the json/default weights if given.
@@ -209,7 +215,7 @@ class Reward:
         return cls(stats, re, weights=weights or calib.get("weights"),
                    scales=scales, names=names, residual_ref=r_ref,
                    std=calib.get("std", STD), mean=calib.get("mean", MEAN), pde_hinge=pde_hinge,
-                   pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch)
+                   pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=highk_band)
 
 
 # ---------------------------------------------------------------- per-input advantage (PPO helper)
