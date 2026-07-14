@@ -138,6 +138,17 @@ DDPO adds ret +0.11-0.12 at record placement (0.883-0.888). Raw-LR ~ ddim-init u
 alternative: gentle cascade (below). Next: K=3 [100,50,30] chain training; retention-weighted reward
 to close the k* gap.
 
+**Re=2000 GT-FREE K=2 chain training (2026-07-14).** Same K=2 [100,75] stoch-DDIM chain finetuning,
+fully extrapolated reward (extrap anchor+floor, scales_re=1000, align=Re1000 value), raw + ddiminit
+variants, 200 iters. Probes: raw 0.290->0.352, ddiminit 0.300->0.372 (peak 0.381). Matched eval:
+ddiminit DDPO ret 0.351 ~= prev OOD best 0.361 at equal placement (0.869) and MSE, HALF the inference
+compute; resid 2.44 (+lam3 2.24). CAVEAT: OOD residual lands BELOW the 3.01 GT floor (2.1-2.4) —
+partially under-turbulence (ret ~0.35 -> intrinsically smaller residual terms), not super-physicality;
+below the floor, resid-vs-floor stops being a physicality metric. OOD chain-base gains almost nothing
+from the recipe alone (0.275->0.290) — the DDPO gain is genuine finetuning. ddim-init keeps a small
+OOD edge (0.351 vs 0.339; weaker base recon -> pre-pass less redundant). Report sections 11-12 have
+fully annotated config tables (input/finetuning/K/inference/guidance per row).
+
 **Gentle decreasing cascade S=[100,50,30] (2026-07-13, user-proposed, `--s_multi`) — best in-dist
 DDPM-policy config.** Deep exploration once then two conservative refinements: ret 0.675 (NO
 overshoot vs 1.19 for [150,100,50]), placement 0.877 (DDPO record; base rows 0.886-0.888), +lam3
