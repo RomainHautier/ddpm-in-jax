@@ -266,6 +266,37 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     if base_hik is not None:
         print(f"GT-probe base hik_ret = {base_hik:.3f} (want DDPO to exceed this)", flush=True)
 
+    # ---- provenance: every checkpoint dir carries the FULL run config (anti-confounding — the
+    # random-1024-vs-grid4x k2 mix-up of 2026-07-14 must not repeat). config.json is written at
+    # launch, before any checkpoint, and includes the git commit of the code that ran.
+    if not smoke:
+        import subprocess
+        try:
+            git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                              cwd=_ROOT, text=True).strip()
+        except Exception:
+            git_rev = None
+        run_config = dict(
+            re=re, gt=cfg["gt"], train_seqs=cfg["train_seqs"], probe_seq=cfg["probe_seq"],
+            degradation=("grid" + str(grid_factor) + "x" if grid_factor else "random-1024"),
+            grid_factor=grid_factor, base_ddim_init=base_ddim_init,
+            ddim_init=dict(steps=ddim_steps, t_start=ddim_t_start) if base_ddim_init else None,
+            policy=dict(sampler=sampler, t_start=t_start,
+                        ddim_steps=policy_ddim_steps if sampler == "ddim" else None,
+                        eta=eta if sampler == "ddim" else None,
+                        chain_starts=list(chain_starts) if chain_starts else None,
+                        ddim_stride=ddim_stride),
+            reward=dict(weights=dict(reward.weights), scales=dict(reward.scales),
+                        highk_band=[highk_lo, 96], pde_hinge=True,
+                        stats=stats_path, scales_re=scales_re),
+            train=dict(lr=lr, n_outer=n_outer, group_size=group_size, n_inner=n_inner,
+                       sampling_temp=temp, kl_coef=kl, resume=resume),
+            git_commit=git_rev, launched="provenance-v1")
+        os.makedirs(save_dir, exist_ok=True)
+        with open(os.path.join(save_dir, "config.json"), "w") as f:
+            json.dump(run_config, f, indent=2, default=str)
+        print(f"    run config -> {save_dir}/config.json", flush=True)
+
     metrics_path = None if smoke else os.path.join(save_dir, "metrics.jsonl")
     if metrics_path:
         os.makedirs(save_dir, exist_ok=True)
