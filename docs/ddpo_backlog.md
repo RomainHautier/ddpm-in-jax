@@ -164,3 +164,13 @@ the K=3 cascade, same noise).** Re=1000: base K1/K2/K3 ret .407/.453/.465, place
 K=3 adds ~+.02 ret for -.01 place / +.001 MSE everywhere -> K=2 is the efficient point (confirms
 backlog #2 hypothesis). Refinement amplifies DDPO's energy lever: harmful in-dist (overshoot),
 strong OOD. Best OOD detail config now: ddiminit DDPO K2 + lam3 (ret .576, resid 3.89, place .823).
+
+**Deep-cascade unlock (2026-07-14) — the comparability eval that dissolved the trade.** The K=2-trained
+models evaluated on the DDPM results' noise levels: stoch-DDIM 3-chain [150,100,50] (86 steps = training
+density; t=150 off-recipe), per-chain rows (`--ddim_stages`). Re=1000 k2dd: 0.555 -> 0.664 -> 0.696
+(k*=95, vs 39 on the training schedule!), +lam3 resid 1.70 at place 0.883 — retention ABOVE gentle
+cascade (0.668) at HALF its residual (1.70 vs 3.39). OOD (GT-free): 0.359 -> 0.419 -> 0.436 (+lam3
+resid 2.38, place 0.837), prev best 0.361. Cost: ~6% MSE. FINAL BEST (both regimes): k2-chain ddim-init
+DDPO + deep cascade [150,100,50] + lam3. Diff-maps figure (deepchain_diff_maps.png): all configs still
+under-carry E_hik at GT hotspots (0.41-0.65 of GT); deep cascade fills most with least misplaced excess.
+Report sections 13 (tables + montage + spectra + diff maps).
