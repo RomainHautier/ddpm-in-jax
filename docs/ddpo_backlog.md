@@ -174,3 +174,15 @@ resid 2.38, place 0.837), prev best 0.361. Cost: ~6% MSE. FINAL BEST (both regim
 DDPO + deep cascade [150,100,50] + lam3. Diff-maps figure (deepchain_diff_maps.png): all configs still
 under-carry E_hik at GT hotspots (0.41-0.65 of GT); deep cascade fills most with least misplaced excess.
 Report sections 13 (tables + montage + spectra + diff maps).
+
+**Band A/B + degradation A/B + per-band limits (2026-07-14).** Config-verified pair (grid4x, ddim-init,
+K2-chain; only spec_highk band differs). (1) DEGRADATION DOMINATES: grid4x training beats the accidental
+random-1024 training by +0.17 ret at same recipe (0.854 vs 0.682 deep-K3+lam3) — per-checkpoint
+config.json provenance now mandatory (commit 5052f2a). (2) Band k>=10: small free win both regimes
+(+0.02 ret in-dist; +0.008 ret/-0.05 resid OOD) — KEEP — but per-band E/E_GT shows it did NOT fill the
+mid band: [10,20) 0.833->0.849, [20,32) 0.698->0.718 (+2pt against a 28pt deficit). (3) THE LIMIT,
+quantified: k=32 is the grid-4x input Nyquist. Above it (free synthesis) DDPO+chains fully close the
+gap (base 0.32->1.01 at [64,96), 0.43->0.77 at [32,64)); below it the input pins the field and reward
+shaping is nearly powerless (base 0.62->0.72 at [20,32), deficit 28% remains). NEW BEST both regimes:
+hk10 deep-K3+lam3 — in-dist ret 0.873/resid 1.78/place 0.861/k*95; OOD GT-free 0.441/2.33/0.849.
+Open frontier: sub-Nyquist [10,32) deficit (mid-t chain? input-consistency term?) — report section 14.
