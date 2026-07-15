@@ -94,8 +94,26 @@ def make_strided_guided_sampler(unet, alpha_bar, t_start, n_steps, dx_func, lam)
     return jax.jit(sample)
 
 
+def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
+    """Gradient of the ONE-SIDED spectral hinge: penalizes log-spectrum energy ABOVE the reward
+    anchor in `kband` only — a soft brake on tail overshoot during deep amplified travel. Uses the
+    same anchor the reward trains against (no per-sample GT; OOD-safe via extrapolated anchors).
+    Validated 2026-07-14: at t=350 with mu~1e3 (plateau mu 1100-3700; unstable >~1e4) it brings
+    k[32,96) from 1.5-2.1x down to ~0.95 WITHOUT draining the mid-band fill (tail and mid-band
+    amplification are separable). Apply on x0_hat: x0 -= mu * brake(x0)."""
+    from src.rewards import make_spectrum_fn
+    spec = make_spectrum_fn(n)
+    lref = jnp.asarray(log_spec_ref)
+
+    def dist(x):
+        lE = jnp.log(spec(x)[:, kband[0]:kband[1]] + 1e-12)
+        return (jnp.maximum(lE - lref[kband[0]:kband[1]], 0.0) ** 2).mean()
+    return jax.grad(dist)
+
+
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
-                             eta=1.0, temp=1.0, return_stages=False, stride=None):
+                             eta=1.0, temp=1.0, return_stages=False, stride=None,
+                             brake_func=None, mu=0.0):
     """Inference-side mirror of ppo_claude.build_ddim_rollout: stochastic-DDIM (Song eq.16) K-chain
     sampler — chain j from chain_starts[j] (descending), schedules from kchain_schedules (n_steps
     total budget split proportionally), deterministic x0-prediction per chain, renoise (forward q)
@@ -116,6 +134,8 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
         x0 = (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t])
         if lam > 0:
             x0 = x0 - lam * dx_func(x0)
+        if brake_func is not None and mu > 0:
+            x0 = x0 - mu * brake_func(x0)                     # spectral hinge-brake (see make_spec_brake_grad)
         return x0, eps
 
     def sample(params, x_start, key):

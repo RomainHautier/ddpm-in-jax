@@ -196,3 +196,13 @@ D=250-450 -> hk10 [100,75]) REFUTED: pure travel does NOT fill mid-band (base de
 (D=350: MSE +83%, ret -0.14, place -0.04 vs ref). Residual robust 1.6-1.8 everywhere. Frontier:
 overshoot control during deep amplified travel (spectral clamp/guidance on deep chain, or
 depth-trained model). Commit: --stride in make_kchain_ddim_sampler.
+
+**Spectral brake (2026-07-14, report s16) — FULL-BAND SPECTRUM MATCH.** One-sided hinge guidance
+above the reward anchor on k[32,96) (`make_spec_brake_grad`, applied on x0_hat like lam-guidance;
+anchor = the reward's own regime stat, OOD-safe via extrap anchors). hk10 deep t=350 + mu~1e3-4e3
+(robust 3x plateau; unstable >1e4; calibrate mu on an ABOVE-anchor field — below-anchor gives zero
+grad): ALL bands land 0.91-0.99 of GT simultaneously (tail 2.11->0.92 while mid-band fill survives
+0.96->0.93 — tail/mid amplification are SEPARABLE). Brake also trims MSE 0.038->0.035, resid
+2.20->1.99. Operating menu: fidelity-first (deep cascade: MSE 0.0195/place 0.86/midband 0.73) vs
+spectrum-complete (t=350+brake: bands 0.91-0.99/resid 2.0/MSE 0.035/place 0.71). Depth decorrelation
+remains the fidelity wall -> frontier: observed-pixel consistency guidance during deep chains.
