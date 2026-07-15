@@ -98,16 +98,19 @@ def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
     """Gradient of the ONE-SIDED spectral hinge: penalizes log-spectrum energy ABOVE the reward
     anchor in `kband` only — a soft brake on tail overshoot during deep amplified travel. Uses the
     same anchor the reward trains against (no per-sample GT; OOD-safe via extrapolated anchors).
-    Validated 2026-07-14: at t=350 with mu~1e3 (plateau mu 1100-3700; unstable >~1e4) it brings
-    k[32,96) from 1.5-2.1x down to ~0.95 WITHOUT draining the mid-band fill (tail and mid-band
-    amplification are separable). Apply on x0_hat: x0 -= mu * brake(x0)."""
+    PER-SAMPLE normalization (mean over shells, SUM over batch) so the gradient scale is independent
+    of batch size — the original batch-mean form made mu effectively scale with 16/B and diverged at
+    small batches (caught 2026-07-14). Validated at t=350: per-sample mu ~ 70-230 (plateau; == the
+    old batch-16 mu 1100-3700; unstable above ~700 == old ~1e4) brings k[32,96) from 1.5-2.1x down
+    to ~0.95 WITHOUT draining the mid-band fill (tail and mid-band amplification are separable).
+    Apply on x0_hat: x0 -= mu * brake(x0)."""
     from src.rewards import make_spectrum_fn
     spec = make_spectrum_fn(n)
     lref = jnp.asarray(log_spec_ref)
 
     def dist(x):
         lE = jnp.log(spec(x)[:, kband[0]:kband[1]] + 1e-12)
-        return (jnp.maximum(lE - lref[kband[0]:kband[1]], 0.0) ** 2).mean()
+        return (jnp.maximum(lE - lref[kband[0]:kband[1]], 0.0) ** 2).mean(axis=1).sum()
     return jax.grad(dist)
 
 

@@ -206,3 +206,15 @@ grad): ALL bands land 0.91-0.99 of GT simultaneously (tail 2.11->0.92 while mid-
 2.20->1.99. Operating menu: fidelity-first (deep cascade: MSE 0.0195/place 0.86/midband 0.73) vs
 spectrum-complete (t=350+brake: bands 0.91-0.99/resid 2.0/MSE 0.035/place 0.71). Depth decorrelation
 remains the fidelity wall -> frontier: observed-pixel consistency guidance during deep chains.
+
+**Disentangle + anchor cost + vs-input contrast (2026-07-14/15, report s17).** (1) GUIDANCE ALONE =
+ZERO: base rows bit-identical +-brake OOD (below-anchor -> ReLU gate closed); all energy from
+finetuning. (2) CFG-MATCHED Re=2000 GT-free run (align 0, 300 it, k>=10 — twin of the Re=1000 recipe;
+probe peak 0.386, record): deep expression 0.564 vs cross-regime 0.871 -> THE ANCHOR IS THE GT-FREE
+COST (extrap tail too conservative), not align/iters/band. (3) Missing cell: ft-Re1000 OOD deep
+cascade K3 = 0.521 (+lam3 0.518/2.29/0.830) vs GT-free 0.443 same recipe -> NEW OOD BEST = transfer
+the measured-anchor in-dist model; fix extrap anchor high-k as training-side alternative. (4) Brake
+normalization bug fixed (batch-mean -> per-sample sum; validated mu 3657@B16 == per-sample ~228;
+contrast-script divergence caught it). (5) vs-input contrasts: in-dist spectrum-complete trades 2x
+frame MSE for the spectral fill; OOD the deep chain IMPROVES E_hik placement over the input
+(0.737 -> 0.784/0.789). Push-notification-on-completion workflow in use.
