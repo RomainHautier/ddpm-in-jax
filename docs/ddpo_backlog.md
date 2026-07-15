@@ -186,3 +186,13 @@ gap (base 0.32->1.01 at [64,96), 0.43->0.77 at [32,64)); below it the input pins
 shaping is nearly powerless (base 0.62->0.72 at [20,32), deficit 28% remains). NEW BEST both regimes:
 hk10 deep-K3+lam3 — in-dist ret 0.873/resid 1.78/place 0.861/k*95; OOD GT-free 0.441/2.33/0.849.
 Open frontier: sub-Nyquist [10,32) deficit (mid-t chain? input-consistency term?) — report section 14.
+
+**Depth sweep + hybrid (2026-07-14, report s15).** hk10 single chain stride-5, t=500..50, full
+val+test: sub-Nyquist k[20,32) FOLDS at t~350 (0.63->0.98) — manifold travel works — but bands mature
+at different depths (k>=64 @ t~200, 32-64 @ t~250) so the tail overshoots 1.5-2.1x at the mid-band's
+depth, MSE 2.5x (0.038), placement 0.774 (peak 0.872 @ t=150). Band-staggered HYBRID (base deep
+D=250-450 -> hk10 [100,75]) REFUTED: pure travel does NOT fill mid-band (base deep k[20,32)
+0.58-0.62 < ref 0.731 — the sweep's filling was the AMPLIFIER traveling); hybrid strictly worse
+(D=350: MSE +83%, ret -0.14, place -0.04 vs ref). Residual robust 1.6-1.8 everywhere. Frontier:
+overshoot control during deep amplified travel (spectral clamp/guidance on deep chain, or
+depth-trained model). Commit: --stride in make_kchain_ddim_sampler.

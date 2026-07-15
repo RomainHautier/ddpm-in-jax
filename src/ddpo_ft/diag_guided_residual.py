@@ -95,7 +95,7 @@ def make_strided_guided_sampler(unet, alpha_bar, t_start, n_steps, dx_func, lam)
 
 
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
-                             eta=1.0, temp=1.0):
+                             eta=1.0, temp=1.0, return_stages=False, stride=None):
     """Inference-side mirror of ppo_claude.build_ddim_rollout: stochastic-DDIM (Song eq.16) K-chain
     sampler — chain j from chain_starts[j] (descending), schedules from kchain_schedules (n_steps
     total budget split proportionally), deterministic x0-prediction per chain, renoise (forward q)
@@ -105,7 +105,7 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
     chain_starts[0]."""
     from ppo_claude import kchain_schedules
     starts = [int(s) for s in chain_starts]
-    scheds = kchain_schedules(starts, n_steps)
+    scheds = kchain_schedules(starts, n_steps, stride)
     pairs = [(jnp.asarray(s[:-1], dtype=jnp.int32), jnp.asarray(s[1:], dtype=jnp.int32), int(s[-1]))
              for s in scheds]
     renoise_coef = [(float(jnp.sqrt(alpha_bar[S])), float(jnp.sqrt(1.0 - alpha_bar[S])))
@@ -130,14 +130,16 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
             return (mean + temp * sigma * jax.random.normal(sk, x.shape), k), None
 
         x = x_start
+        stages = []
         for j, (tc, tn, tl) in enumerate(pairs):
             key, k_scan, k_re = jax.random.split(key, 3)
             (x_low, _), _ = jax.lax.scan(step, (x, k_scan), (tc, tn))
             x0, _ = _x0hat(params, x_low, tl)
+            stages.append(x0)                                  # output of chain j+1 (before renoise)
             if j < len(pairs) - 1:
                 sa, s1 = renoise_coef[j]
                 x = sa * x0 + s1 * jax.random.normal(k_re, x0.shape)
-        return x0
+        return tuple(stages) if return_stages else x0
     return jax.jit(sample)
 
 
