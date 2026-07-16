@@ -14,7 +14,7 @@ from jax.sharding import NamedSharding, PartitionSpec as P
 from tqdm import tqdm
 
 from src.models.model import DDPM, ConditionalUnet
-from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint, load_checkpoint, save_residual_plot
+from src.utils import load_npy_from_gcs, plot_losses, save_final_loss_plot, save_checkpoint, load_checkpoint, save_residual_plot, dump_run_config
 from src.physics_guidance import make_cond_func, make_residual_loss
 tf.config.experimental.set_visible_devices([], "GPU")
 
@@ -148,8 +148,8 @@ def make_steps(model, optimizer, alpha_bar, cond_func):
         )
         return eps, noised
 
-    @partial(jax.jit, static_argnums=(3,))
-    def train_step(params, opt_state, ims, condition, t, key):
+    @partial(jax.jit, static_argnums=(4,))
+    def train_step(params, ema_params, opt_state, ims, condition, t, key, ema=0.9999):
         def loss_fn(params):
             dropout_key, noise_key = jax.random.split(key)
             eps, noised = _noised(params, ims, t, noise_key)
@@ -162,7 +162,8 @@ def make_steps(model, optimizer, alpha_bar, cond_func):
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, opt_state = optimizer.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
-        return params, opt_state, loss
+        ema_params = jax.tree_util.tree_map(lambda e, p: ema*e + (1-ema)*p, ema_params, params)
+        return params, ema_params, opt_state, loss
 
     @jax.jit
     def eval_step(params, ims, t, key):
@@ -189,9 +190,11 @@ def train(cfg):
     T = cfg["diffusion"]["T"]
     batch_size = cfg["training"]["batch_size"]
     n_epochs = cfg["training"]["n_epochs"]
+    ema = cfg["training"]["ema"]
     save_every = cfg["checkpointing"]["save_every_n_epochs"]
     # run-specific monitoring subfolder so plots don't overwrite other runs'
     run_name = cfg.get("monitoring", {}).get("run_name", "")
+    dump_run_config(cfg, subdir=run_name)          # provenance BEFORE any checkpoint exists
 
     # Initialise model
     params = build_params(model, cfg, key)
@@ -225,7 +228,10 @@ def train(cfg):
     mesh = jax.make_mesh((n_devices,), ("data",))
     data_sharding = NamedSharding(mesh, P("data"))
     repl_sharding = NamedSharding(mesh, P())
+    
+    # initiliasing parameters & keeping an EMA copy.
     params = jax.device_put(params, repl_sharding)
+    ema_params = params
     opt_state = jax.device_put(opt_state, repl_sharding)
     print(
         f"Data-parallel over {n_devices} devices "
@@ -285,7 +291,7 @@ def train(cfg):
             t = jax.device_put(t, data_sharding)
             # classifier-free dropout decided host-side: True (conditional) ~ 1 - proba
             condition = bool(np.random.rand() >= cond_proba)
-            params, opt_state, loss = train_step(params, opt_state, ims, condition, t, noise_key)
+            params, ema_params, opt_state, loss = train_step(params, ema_params, opt_state, ims, condition, t, noise_key, ema)
             epoch_train.append(float(loss))
             
             counter += 1
@@ -322,7 +328,7 @@ def train(cfg):
             tqdm.write(f"           residual  cond={res_cond_hist[-1]:.3e}  uncond={res_uncond_hist[-1]:.3e}")
 
         if (epoch + 1) % save_every == 0:
-            save_checkpoint(params, opt_state, epoch, cfg, subdir=run_name)
+            save_checkpoint(params, opt_state, epoch, cfg, subdir=run_name, ema_params=ema_params, ema_rate=ema)
 
     save_final_loss_plot(train_losses, val_losses, subdir=run_name)
     return params, train_losses, val_losses

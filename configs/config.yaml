@@ -15,12 +15,18 @@ diffusion:
 training:
   batch_size: 32
   learning_rate: 0.0002
-  n_epochs: 60
+  n_epochs: 300
   seed: 0
+  ema: 0.9999
+
+inference:
+  # which base checkpoint the whole DDPO/eval stack loads (build_base_ddpm).
+  # Override per-run without editing: env var BASE_CKPT=... or build_base_ddpm(ckpt_path=...).
+  base_ckpt: checkpoints/ddpm/ckpt_epoch_0299.pkl
 
 conditioning:
   train:
-    enabled: true    # conditional adapter training (set false only to train a plain base Unet, and also set inference.enabled false)
+    enabled: false    # conditional adapter training (set false only to train a plain base Unet, and also set inference.enabled false)
     freeze_base: true   # true -> only the cond_* adapter trains; false -> full model re-trains (nothing frozen)
     proba: 0.1
     re: 1000
@@ -28,7 +34,7 @@ conditioning:
     
 
   inference:
-    enabled: true
+    enabled: false
     pretrained_ckpt: "insert checkpoint path mate"
     cond_strength: 0
     re: 1000
@@ -52,4 +58,4 @@ checkpointing:
 
 monitoring:
   # loss plots go to gs://<bucket>/monitoring/<run_name>/ so runs don't overwrite each other
-  run_name: conditioned_frozen_base_60ep
+  run_name: base_ema_mu9999_300ep

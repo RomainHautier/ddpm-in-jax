@@ -154,12 +154,48 @@ def save_residual_plot(res_cond, res_uncond, epoch, subdir: str = ""):
 # ---------------------------------------------------------------------------
 
 
-def save_checkpoint(params, opt_state, epoch, cfg, subdir: str = ""):
+def dump_run_config(cfg, subdir: str = ""):
+    """Write the fully-resolved run config + provenance (git commit, timestamp, devices) as
+    config.json into the checkpoint dir — every training run must be traceable (anti-confounding;
+    same policy as the DDPO finetunes' per-checkpoint config.json)."""
+    import json, subprocess, datetime
+    try:
+        git_rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        git_rev = None
+    try:
+        import jax as _jax
+        devices = str(_jax.devices())
+    except Exception:
+        devices = None
+    payload = {"config": cfg, "git_commit": git_rev, "devices": devices,
+               "launched_at": datetime.datetime.now().isoformat(timespec="seconds"),
+               "provenance": "train_ddpm dump_run_config v1"}
+    ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
+    if subdir:
+        ckpt_dir = f"{ckpt_dir.rstrip('/')}/{subdir}"
+    path = f"{ckpt_dir.rstrip('/')}/config.json"
+    body = json.dumps(payload, indent=2, default=str)
+    if path.startswith("gs://"):
+        fs = get_fs()
+        with fs.open(path, "w") as f:
+            f.write(body)
+    else:
+        os.makedirs(ckpt_dir, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(body)
+    print(f"run config -> {path}", flush=True)
+
+
+def save_checkpoint(params, opt_state, epoch, cfg, subdir: str = "", ema_params=None, ema_rate=None):
     ckpt_dir = cfg["checkpointing"]["checkpoint_dir"]
     if subdir:
         ckpt_dir = f"{ckpt_dir.rstrip('/')}/{subdir}"
     filename = f"ckpt_epoch_{epoch:04d}.pkl"
     payload = {"params": params, "opt_state": opt_state, "epoch": epoch}
+    if ema_params is not None:
+        payload["ema_params"] = ema_params            # NAMED key (not positional a la BaratiLab states[-1])
+        payload["ema_rate"] = ema_rate                # provenance: which mu produced these weights
 
     if ckpt_dir.startswith("gs://"):
         fs = get_fs()

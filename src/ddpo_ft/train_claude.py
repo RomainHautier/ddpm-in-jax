@@ -55,15 +55,32 @@ RE_CFG = {
 }
 
 
-def build_base_ddpm(config_path="configs/config.yaml"):
+def build_base_ddpm(config_path="configs/config.yaml", ckpt_path=None):
     """Build the base (unconditional) DDPM + load base params. Conditioning forced off so the plain
-    Unet matches ckpt_0299."""
+    Unet matches the unconditional checkpoint.
+
+    Base-checkpoint resolution order (for old-base vs EMA-base A/Bs without touching call sites):
+      1. explicit `ckpt_path` argument
+      2. env var BASE_CKPT
+      3. configs/config.yaml -> inference.base_ckpt
+      4. legacy default checkpoints/ddpm/ckpt_epoch_0299.pkl"""
     cfg = copy.deepcopy(yaml.safe_load(open(config_path)))
     cfg["conditioning"]["train"]["enabled"] = False
     cfg["conditioning"]["inference"]["enabled"] = False
     ddpm = DDPM(cfg)
-    params, _, epoch = load_checkpoint("checkpoints/ddpm/ckpt_epoch_0299.pkl")
-    print(f"base DDPM: {type(ddpm.unet).__name__} | epoch {epoch} | T={cfg['diffusion']['T']}", flush=True)
+    _ck_path = (ckpt_path or os.environ.get("BASE_CKPT")
+                or cfg.get("inference", {}).get("base_ckpt")
+                or "checkpoints/ddpm/ckpt_epoch_0299.pkl")
+    import pickle as _pkl
+    with open(_ck_path, "rb") as _f:
+        _ck = _pkl.load(_f)
+    # prefer EMA weights when the checkpoint carries them (named key; see report.md EMA finding)
+    _use_ema = "ema_params" in _ck
+    params = _ck["ema_params"] if _use_ema else _ck["params"]
+    epoch = _ck.get("epoch", "?")
+    _ema_note = f" | EMA weights (mu={_ck.get('ema_rate', '?')})" if _use_ema else ""
+    print(f"base DDPM: {type(ddpm.unet).__name__} | epoch {epoch} | T={cfg['diffusion']['T']}"
+          f"{_ema_note} | ckpt={_ck_path}", flush=True)
     return ddpm, params, cfg
 
 
