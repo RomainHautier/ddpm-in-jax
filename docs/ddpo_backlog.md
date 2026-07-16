@@ -259,3 +259,13 @@ candidate (their cascade avoids our stage-wise retention decay this way). Banked
 cascades (one-line); (b) run our base + our finetuned under their true ladder (400/280/196 coarse
 eta=0) — cheap (43 steps total); (c) s20 table = both models under OUR nominal [150,100,50], labeled
 correctly now.
+
+**Their ladder on our models (2026-07-15, report s20b).** Faithful replica (400/280/196, eta=0,
+20/14/9 steps, early-stop t~20, raw inputs) on our checkpoints. (1) hk10 under THEIR sampler = BEST
+SYSTEM on their benchmark: ret 0.803 (vs their 0.468), resid 1.72-1.79 (GT floor 1.12; 99.7% of
+frames better), place 0.428 (vs 0.343), MSE tie 0.158 — their sampler + our finetuning COMPOSE
+(deep ladder = physics; early-stop preserves what the amplifier builds). (2) Our base under their
+ladder = physicality extreme (resid 1.31, 100% frame-wise; MSE 0.1453, 94%) but spectrally collapsed
+(ret 0.207) — identical procedure, very different eps-conservatism between the two trained DDPMs
+(caveat: banked pred_it2's t unknown, 240 vs 400). (3) lam3 adds ~nothing near floor. TODO: t=240/r=30
+variant to disambiguate their banked args; early-stop endpoint in our own cascades still pending.
