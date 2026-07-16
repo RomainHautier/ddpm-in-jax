@@ -269,3 +269,13 @@ ladder = physicality extreme (resid 1.31, 100% frame-wise; MSE 0.1453, 94%) but 
 (ret 0.207) — identical procedure, very different eps-conservatism between the two trained DDPMs
 (caveat: banked pred_it2's t unknown, 240 vs 400). (3) lam3 adds ~nothing near floor. TODO: t=240/r=30
 variant to disambiguate their banked args; early-stop endpoint in our own cascades still pending.
+
+**Ladder follow-ups (2026-07-15, report s21).** (1) README args t=240/r=30: our base ret 0.307 (vs
+their 0.468) — neither arg set reproduces their signature -> MODEL-level texture difference is
+genuine (their DDPM retains more under identical procedures). hk10 gains a depth dial on their
+benchmark: t=240 -> MSE 0.1446 beats their 0.1578 at ret 0.57; t=400 -> ret 0.80 at MSE parity.
+(2) EARLY-STOP DOES NOT TRANSPLANT to our cascade: t_floor 15/25 lifts ret +0.02/+0.04 but entirely
+as tail overshoot (1.145->1.368) + resid 1.76->1.99, mid-band unmoved. MECHANISTIC CLOSURE: the t->1
+"over-smoothing" (s18) is a NATURAL BRAKE for an amplified model (pulls overshooting tail toward 1);
+the same mechanism is a loss for their conservative model. Keep t_floor=1 for our cascade. Their
+trick is right for their sampler, wrong for ours — now with the exact reason.
