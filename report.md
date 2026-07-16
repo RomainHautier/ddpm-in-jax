@@ -152,3 +152,13 @@ hypothesis**: a true per-step EMA (μ=0.9999) during training is well-motivated 
 expected effect substantially larger than the probe. Figure:
 `monitoring/ab_pdelocal/ema_probe_spectra.png`; log: `.../ema_probe.log`; probe script:
 (session scratchpad) `ema_probe.py`. Averaged weights are trivially rebuildable from the GCS series.
+
+## 7. Update (2026-07-16): exact-args correction sharpens the hypothesis
+
+The conditional run report revealed the banked baseline's true args (t400/r150/step3). Rerunning our
+base at exactly those args: ret 0.289 (vs 0.209 at the r=20 defaults) — finer stepping explains ~30%
+of the previously-reported gap, but the remaining model-level difference (0.289 vs their 0.468, now
+under matched-everything) stands, and remains EMA-shaped: pure high-k texture, while our base wins
+MSE (0.1288, best of any config on their benchmark), residual (1.64) and placement (0.464). Their
+physics-conditioned model (as released) scored ret 0.101 / resid 1.79 / MSE 0.1386 — conservative
+extreme; no threat to the finetuned stack. See results artifact §22.

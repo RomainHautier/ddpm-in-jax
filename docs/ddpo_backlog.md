@@ -288,3 +288,13 @@ snapshots (GCS series ep0009-0299): every band UP at zero cost — ret 0.209->0.
 crudest surrogate. NEXT: add optax-style EMA to src/train_ddpm.py and retrain base (mu=0.9999);
 then re-evaluate DDPO stack on EMA base (amplifier gain may need less; sub-Nyquist band the metric
 to watch). Handoff doc: report.md (repo root + gs://ddpm-thesis-rh/report.md).
+
+**Conditional model scored + baseline args corrected (2026-07-16, report s22).** Their conditional
+(as-released t240/r30/s1, w=0, smoothed input; reference bit-identical, md5 verified): ret 0.101 /
+resid 1.79 / MSE 0.1386 / place 0.394 — extreme conservative; beats their baseline MSE 100% / resid
+99.7% of frames but spectrum nearly empty. Their run report revealed the June baseline's TRUE args
+(t400/r150/s3, NOT r=20 defaults) -> correction run: our base at exact args = ret 0.289 / resid 1.64
+/ MSE 0.1288 / place 0.464 (step count explained ~30% of the s21 gap; model-level texture difference
+0.289-vs-0.468 PERSISTS under matched-everything — EMA hypothesis intact and sharpened). Bonus: our
+base at true args = best MSE/resid/place of ANY config on their benchmark. Pending: their run B
+(budget-matched conditional, t400/r150/s3).
