@@ -229,3 +229,13 @@ residual attractor ~1.9-2.0 self-restores after every perturbation. Increments m
 energy at the SAME filament sites (placement-respecting amplification). ACTIONABLE: shorten chains
 2-3 / single t~50 finisher (compute saving); stop chains at t~10-20 instead of 1 to keep tail near
 its mid-chain peak (one-line experiment); mid-band = deep-travel-only (4th line of evidence).
+
+**BaratiLab comparison (2026-07-15, report s19).** Their baseline preds (pred_it2, banked pkl) vs ours
+on THEIR benchmark (random-1024 = 1/64 = their 32x32 paper case, irregular masks, seqs 36-39, 320
+frames, their inputs+reference). WE WIN EVERY AGGREGATE: MSE 0.1438 vs 0.1578 (-9%), resid 2.00 vs
+2.52 (GT floor 1.12), ret 0.553 vs 0.468, place 0.414 vs 0.343 (best rows: deep cascade +lam3).
+Nuances: their iterative-refinement sampler already physicality-preserving (their baseline resid 2.5
+vs OUR base 4.4 — their procedure anticipated chain-inference; ours still beats it); band profiles
+differ (they hold mid-band 0.63-0.82, we rebuild tail 0.72-0.78 vs their 0.44; our k* 24 vs 35);
+cross-degradation: grid4x-trained hk10 edges task-matched k2dd even on random-1024. NOT compared:
+their physics-informed conditional variant (never exported — still the open head-to-head).
