@@ -249,3 +249,13 @@ cascade retention 0.396->0.361 across stages, cf s18). Vorticity PDFs near-ident
 thin extreme tails. The finetuned hk10 deep+lam3 (s19) breaks the dichotomy: beats their baseline on
 ALL FOUR aggregates. Worth borrowing: their per-stage sampler detail that avoids end-of-chain
 smoothing (aligns with s18's "stop chains at t~10-20" candidate).
+
+**Their sampler decoded (2026-07-15, s20 corrected).** BaratiLab's shipped recons sampler (verified
+from main_v1 source): per iteration it: depth = t*0.7^it (default t=400 -> 400/280/196; README t=240),
+steps = r*0.7^it (default 20/14/9) COARSE DETERMINISTIC DDIM (eta=0), stride ~20 -> finest visited
+t~20 then single x0 jump = EARLY-STOP by construction — independently validates s18's stop-at-t~10-20
+candidate (their cascade avoids our stage-wise retention decay this way). Banked pred_it2's exact
+(t,r) unrecorded (provenance lesson applies to them too). TODO next: (a) early-stop endpoint in OUR
+cascades (one-line); (b) run our base + our finetuned under their true ladder (400/280/196 coarse
+eta=0) — cheap (43 steps total); (c) s20 table = both models under OUR nominal [150,100,50], labeled
+correctly now.
