@@ -239,3 +239,13 @@ vs OUR base 4.4 — their procedure anticipated chain-inference; ours still beat
 differ (they hold mid-band 0.63-0.82, we rebuild tail 0.72-0.78 vs their 0.44; our k* 24 vs 35);
 cross-degradation: grid4x-trained hk10 edges task-matched k2dd even on random-1024. NOT compared:
 their physics-informed conditional variant (never exported — still the open head-to-head).
+
+**Baseline vs baseline (2026-07-15, report s20).** Our base under THEIR exact cascade [150,100,50] on
+their inputs (320 frames): per-frame win rates MSE 100% ours (0.1425 vs 0.1578, -9.7%), residual 0%
+ours (3.67 vs 2.52 — distributions don't even overlap). Two implementations of the "same" recipe land
+on opposite trade points: ours = conservative/averaged (best MSE+placement 0.395), theirs = textured/
+physical (ret 0.468, k*35, resid 2.5 — their sampler avoids the t->1 oversmoothing that costs our
+cascade retention 0.396->0.361 across stages, cf s18). Vorticity PDFs near-identical in core, both
+thin extreme tails. The finetuned hk10 deep+lam3 (s19) breaks the dichotomy: beats their baseline on
+ALL FOUR aggregates. Worth borrowing: their per-stage sampler detail that avoids end-of-chain
+smoothing (aligns with s18's "stop chains at t~10-20" candidate).
