@@ -153,10 +153,15 @@ def make_steps(model, optimizer, alpha_bar, cond_func):
         def loss_fn(params):
             dropout_key, noise_key = jax.random.split(key)
             eps, noised = _noised(params, ims, t, noise_key)
-            condRes = cond_func(noised) if condition else None
-            eps_pred = model.apply(
-                {"params": params}, noised, t, train=True, rngs={"dropout": dropout_key}, condRes=condRes
-            )
+            if cond_func is None:                     # plain unconditional Unet: no condRes kwarg
+                eps_pred = model.apply(
+                    {"params": params}, noised, t, train=True, rngs={"dropout": dropout_key}
+                )
+            else:
+                condRes = cond_func(noised) if condition else None
+                eps_pred = model.apply(
+                    {"params": params}, noised, t, train=True, rngs={"dropout": dropout_key}, condRes=condRes
+                )
             return jnp.mean((eps - eps_pred) ** 2)
 
         loss, grads = jax.value_and_grad(loss_fn)(params)
@@ -249,7 +254,8 @@ def train(cfg):
     re = cfg['conditioning']['train']['re']
     cond_proba = cfg['conditioning']['train']['proba']
     cond_signal = cfg['conditioning']['train'].get('cond_signal', 'gradient')
-    cond_func = make_cond_func(cond_signal, n=n, re=re, std=std, mean=mean)
+    cond_func = (make_cond_func(cond_signal, n=n, re=re, std=std, mean=mean)
+                 if cfg['conditioning']['train']['enabled'] else None)   # None -> plain Unet path
     
     # Make steps
     train_step, eval_step = make_steps(model, optimizer, alpha_bar, cond_func)

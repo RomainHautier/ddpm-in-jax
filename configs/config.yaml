@@ -27,7 +27,7 @@ inference:
 conditioning:
   train:
     enabled: false    # conditional adapter training (set false only to train a plain base Unet, and also set inference.enabled false)
-    freeze_base: true   # true -> only the cond_* adapter trains; false -> full model re-trains (nothing frozen)
+    freeze_base: false   # true -> only the cond_* adapter trains; false -> full model re-trains (nothing frozen)
     proba: 0.1
     re: 1000
     pretrained_ckpt: "gs://ddpm-thesis-rh/checkpoints/ddpm/ckpt_epoch_0299.pkl" # can be a path or None
