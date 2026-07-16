@@ -218,3 +218,14 @@ normalization bug fixed (batch-mean -> per-sample sum; validated mu 3657@B16 == 
 contrast-script divergence caught it). (5) vs-input contrasts: in-dist spectrum-complete trades 2x
 frame MSE for the spectral fill; OOD the deep chain IMPROVES E_hik placement over the input
 (0.737 -> 0.784/0.789). Push-notification-on-completion workflow in use.
+
+**Step-resolved chain diagnostics (2026-07-15, report s18).** x0_hat metrics at EVERY step of the two
+best configs + per-chain incremental maps. Cascade: chain 1 does ALL durable work (placement
+0.846->0.867, resid 5->1.9 attractor, mid-band written in first ~15 deep steps then frozen); final
+low-t steps of every chain OVER-SMOOTH the tail (k64-96 peaks 0.78 mid-chain -> 0.62 at chain end);
+renoises reset the tail up (0.62->1.1) at +0.001 MSE each; chains 2-3 = tail managers only. Braked
+deep: best MSE occurs EARLY (t~320), brake-vs-amplifier spiky tug-of-war converges below t~100;
+residual attractor ~1.9-2.0 self-restores after every perturbation. Increments maps: every chain adds
+energy at the SAME filament sites (placement-respecting amplification). ACTIONABLE: shorten chains
+2-3 / single t~50 finisher (compute saving); stop chains at t~10-20 instead of 1 to keep tail near
+its mid-chain peak (one-line experiment); mid-band = deep-travel-only (4th line of evidence).
