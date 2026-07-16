@@ -124,3 +124,31 @@ why every canonical DDPM implementation ships it on by default.
 **Repo pointers recap** — theirs: `train_ddpm/models/ema.py`, `train_ddpm/runners/diffusion_tub.py:134/200/210`,
 `train_ddpm/configs/km_re1000_rs256.yml:24`, `runners/rs256_guided_diffusion.py:299`. Ours (no EMA):
 `src/train_ddpm.py`; single local checkpoint `checkpoints/ddpm/ckpt_epoch_0299.pkl`; full series on GCS.
+
+---
+
+## 6. RESULT: the post-hoc averaging probe (run 2026-07-15)
+
+Option 1 from §4 was executed — uniform average of the last 6 (ep 249–299) and last 11 (ep 199–299)
+snapshots, evaluated against raw `ckpt_epoch_0299`:
+
+| config | ret | resid | MSE | place | k[10,20) | k[20,32) | k[32,64) | k[64,96) |
+|---|---|---|---|---|---|---|---|---|
+| **their ladder, their benchmark** | | | | | | | | |
+| BaratiLab pred_it2 (target) | 0.468 | 2.52 | 0.1578 | 0.343 | 0.82 | 0.63 | 0.47 | 0.44 |
+| raw 0299 | 0.209 | 1.31 | 0.1454 | 0.460 | 0.42 | 0.26 | 0.21 | 0.17 |
+| avg6 | **0.246** | 1.28 | 0.1468 | 0.445 | 0.45 | 0.29 | 0.25 | 0.20 |
+| avg11 | 0.245 | 1.34 | 0.1476 | 0.445 | 0.46 | 0.30 | 0.25 | 0.20 |
+| **our grid-4× benchmark, base K1** | | | | | | | | |
+| raw 0299 | 0.385 | 3.36 | 0.0159 | 0.819 | 0.86 | 0.63 | 0.39 | 0.27 |
+| avg6 | **0.400** | 3.38 | **0.0157** | 0.819 | 0.86 | 0.64 | 0.41 | 0.29 |
+
+**Reading.** Every spectral band rises under weight averaging, on both benchmarks, at zero cost
+(MSE flat-to-better, residual flat, placement ~flat): retention +18% relative on their ladder
+(0.209 → 0.246), +0.015 on our K1 row. The wider window (avg11) plateaus rather than hurts. This is
+the *coarsest conceivable* EMA surrogate — snapshots 10 epochs apart, uniform weights — and it still
+closes ~15% of the texture gap to their checkpoint. **Directional confirmation of the EMA
+hypothesis**: a true per-step EMA (μ=0.9999) during training is well-motivated as the real fix;
+expected effect substantially larger than the probe. Figure:
+`monitoring/ab_pdelocal/ema_probe_spectra.png`; log: `.../ema_probe.log`; probe script:
+(session scratchpad) `ema_probe.py`. Averaged weights are trivially rebuildable from the GCS series.

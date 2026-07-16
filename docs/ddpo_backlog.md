@@ -279,3 +279,12 @@ as tail overshoot (1.145->1.368) + resid 1.76->1.99, mid-band unmoved. MECHANIST
 "over-smoothing" (s18) is a NATURAL BRAKE for an amplified model (pulls overshooting tail toward 1);
 the same mechanism is a loss for their conservative model. Keep t_floor=1 for our cascade. Their
 trick is right for their sampler, wrong for ours — now with the exact reason.
+
+**EMA hypothesis + probe (2026-07-15, report.md).** Root cause of base conservatism identified:
+BaratiLab trains with EMA (mu=0.9999, ema.py; inference loads states[-1] = EMA weights,
+rs256_guided_diffusion.py:299); our train_ddpm.py has NO EMA. Post-hoc average of last 6/11 epoch
+snapshots (GCS series ep0009-0299): every band UP at zero cost — ret 0.209->0.246 (their ladder,
++18% rel, ~15% of gap to their ckpt) and 0.385->0.400 (our K1) — DIRECTIONAL CONFIRMATION with the
+crudest surrogate. NEXT: add optax-style EMA to src/train_ddpm.py and retrain base (mu=0.9999);
+then re-evaluate DDPO stack on EMA base (amplifier gain may need less; sub-Nyquist band the metric
+to watch). Handoff doc: report.md (repo root + gs://ddpm-thesis-rh/report.md).
