@@ -113,15 +113,20 @@ def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, g
         yield jnp.asarray(pool[idx], dtype=jnp.float32)
 
 
-def save_ckpt(params, opt_state, outer, save_dir):
+def save_ckpt(params, opt_state, outer, save_dir, ema_params=None, ema_rate=None):
     import pickle
     import jax
     os.makedirs(save_dir, exist_ok=True)
     # params/opt_state are REPLICATED across devices (pmap) -> save a single replica
     unrep = lambda t: jax.tree_util.tree_map(lambda a: np.asarray(a[0]), t)
     path = os.path.join(save_dir, f"ddpo_re1000_iter{outer:04d}.pkl")
+    payload = {"params": unrep(params), "opt_state": unrep(opt_state), "iter": outer}
+    if ema_params is not None:
+        # named keys, same convention as base-training checkpoints (never positional)
+        payload["ema_params"] = unrep(ema_params)
+        payload["ema_rate"] = ema_rate
     with open(path, "wb") as f:
-        pickle.dump({"params": unrep(params), "opt_state": unrep(opt_state), "iter": outer}, f)
+        pickle.dump(payload, f)
     print(f"    saved {path}", flush=True)
 
 
@@ -145,7 +150,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
-         highk_lo=32):
+         highk_lo=32, policy_ema=0.0):
     import json
     import pickle
     import jax
@@ -307,7 +312,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                         highk_band=[highk_lo, 96], pde_hinge=True,
                         stats=stats_path, scales_re=scales_re),
             train=dict(lr=lr, n_outer=n_outer, group_size=group_size, n_inner=n_inner,
-                       sampling_temp=temp, kl_coef=kl, resume=resume),
+                       sampling_temp=temp, kl_coef=kl, resume=resume,
+                       policy_ema=policy_ema or None),
             git_commit=git_rev, launched="provenance-v1")
         os.makedirs(save_dir, exist_ok=True)
         with open(os.path.join(save_dir, "config.json"), "w") as f:
@@ -319,9 +325,22 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         os.makedirs(save_dir, exist_ok=True)
         open(metrics_path, "a" if resume else "w").close()
 
+    # optional EMA over policy weights: per-OUTER-iteration shadow (not per grad step) to average
+    # PPO plateau noise; off by default (policy_ema=0.0). Shadow is replicated like trainer.params.
+    ema_params = None
+    if policy_ema > 0.0:
+        import jax as _jax
+        ema_params = _jax.tree_util.tree_map(lambda a: a, trainer.params)
+        print(f"    POLICY EMA: shadow weights, mu={policy_ema} per outer iter "
+              f"(~{1.0/(1.0-policy_ema):.0f}-iter horizon); checkpoints carry ema_params+ema_rate", flush=True)
+
     for outer in range(n_outer):
         gi = start_iter + outer
         m = trainer.train_iter(next(inputs))
+        if ema_params is not None:
+            import jax as _jax
+            ema_params = _jax.tree_util.tree_map(
+                lambda e, p: policy_ema * e + (1.0 - policy_ema) * p, ema_params, trainer.params)
         comp = "  ".join(f"{k}={v:.3f}" for k, v in m["components"].items())
         print(f"[{gi:04d}] R={m['reward_mean']:.3f}±{m['reward_std']:.3f} gstd={m['group_r_std']:.3f} "
               f"|A|={m['adv_abs_mean']:.2f} loss {m['loss_first']:.3f}->{m['loss_last']:.3f}  {comp}",
@@ -336,10 +355,12 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
             with open(metrics_path, "a") as f:
                 f.write(json.dumps(rec) + "\n")
         if not smoke and (gi + 1) % save_every == 0:
-            save_ckpt(trainer.params, trainer.opt_state, gi, save_dir)
+            save_ckpt(trainer.params, trainer.opt_state, gi, save_dir,
+                      ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
 
     if not smoke:
-        save_ckpt(trainer.params, trainer.opt_state, start_iter + n_outer - 1, save_dir)
+        save_ckpt(trainer.params, trainer.opt_state, start_iter + n_outer - 1, save_dir,
+                  ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
     print("\nDONE.", flush=True)
     return trainer
 
@@ -399,4 +420,8 @@ if __name__ == "__main__":
     ap.add_argument("--highk_lo", type=int, default=32,
                     help="lower edge of the spec_highk reward band (default 32; 10 = extend to where "
                          "the energy deficit starts)")
+    ap.add_argument("--policy_ema", type=float, default=0.0,
+                    help="OPTIONAL EMA over policy weights, applied once per outer iteration "
+                         "(e.g. 0.99 ~ 100-iter horizon). 0 = off (default). Checkpoints then carry "
+                         "ema_params+ema_rate under named keys; eval can compare shadow vs online.")
     main(**vars(ap.parse_args()))

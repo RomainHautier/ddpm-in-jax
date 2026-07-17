@@ -298,3 +298,23 @@ resid 1.79 / MSE 0.1386 / place 0.394 — extreme conservative; beats their base
 0.289-vs-0.468 PERSISTS under matched-everything — EMA hypothesis intact and sharpened). Bonus: our
 base at true args = best MSE/resid/place of ANY config on their benchmark. Pending: their run B
 (budget-matched conditional, t400/r150/s3).
+
+**EMA arc executed: base retrained + DDPO restacked (2026-07-17).** Base retrained 300ep with
+EMA mu=0.9999 (train_ddpm.py shadow update; ckpts carry named ema_params/ema_rate; run config.json
+provenance; gs://.../checkpoints/ddpm/base_ema_mu9999_300ep/). A/B: retrain lifts base everywhere
+(their ladder 0.209->0.240, our K1 0.385->0.401, their-bench true-args 0.289->0.314, bands k>=10
+all up, MSE/resid flat); EMA shadow ~= online at convergence (slightly cleaner resid 3.47 vs 3.67,
+slightly lower ret) — EMA is real but SMALL at 300ep; remaining gap to their 0.468 lives elsewhere.
+DDPO hk10 recipe rerun on EMA base (BASE_CKPT override): probe base 0.438 (old 0.420), plateau
+0.60-0.67, final 0.662 (old-run trajectory beaten throughout). EMA-stack evals: their-bench deep+l3
+ret 0.553->0.629, their-ladder 0.803->0.858; our grid4x deep+l3 ret 0.872 / place 0.891. NEW ISSUE:
+tail k[64,96) now OVERSHOOTS GT (1.11-1.21) and resid worsens where overshoot largest (2.26 ladder)
+— brake retune (higher lambda or hinge on [64,96)) is the obvious next lever.
+
+**Policy-EMA option added to DDPO trainer (2026-07-17, OPTION ONLY, default off).**
+train_claude.py --policy_ema MU (e.g. 0.99 ~ 100-outer-iter horizon): per-OUTER-iteration shadow of
+policy weights, motivated by the 0.56-0.67 GT-probe plateau noise (checkpoint quality = eval-draw
+luck). Shadow is passive (does not alter training); checkpoints then carry named ema_params/
+ema_rate; save_ckpt payload unchanged when off. Unit-tested (payload keys + update math). Natural
+first test: the armed Re=2000 GT-free run (monitoring/ema_re2000_driver.sh) — one run yields both
+online and shadow checkpoints to compare.
