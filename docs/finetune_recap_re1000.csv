@@ -1,0 +1,13 @@
+run,input,downsampling,DDIM-init (t/steps/eta),base model,FT scheme (chains/steps/eta),reward band,anchor,inference run
+control,raw low-res,random-1024 NN-fill,-,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 eval
+align,raw low-res,random-1024 NN-fill,-,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 eval
+pdelocal,raw low-res,random-1024 NN-fill,-,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 eval
+pdeheavy,raw low-res,grid-4x,-,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 eval
+grid4x,raw low-res,grid-4x,-,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 eval
+ddiminit,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,single DDPM t=100 / 100 st / size 1,"k[32,96)",measured Re1000,K1 + step-trajectory study
+ddiminit_t50,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,single DDPM t=50 / 50 st / size 1,"k[32,96)",measured Re1000,K1 (t-start ablation)
+k2_ddim50,raw low-res,random-1024 NN-fill,-,no-EMA,"K2 S=[100,75] / ~28+20 st size ~3.6 / eta=1","k[32,96)",measured Re1000,K1/K3 cascade
+k2_ddiminit (k2dd),base-DDIM recon,random-1024 NN-fill,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / ~28+20 st / eta=1","k[32,96)",measured Re1000,K3 deep+lam3; BaratiLab bench
+g4hk32,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / ~28+20 st / eta=1","k[32,96)",measured Re1000,K1/K3 cascade
+hk10 (old flagship),base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / ~28+20 st / eta=1","k[10,96)",measured Re1000,"full matrix: K1/K2/K3 +-lam3 +-brake, their ladder, true-args"
+hk10_emabase (FLAGSHIP),base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,EMA (mu=0.9999),"K2 S=[100,75] / ~28+20 st / eta=1","k[10,96)",measured Re1000,full matrix + brake mu-sweep + OOD cross-regime (0.555)

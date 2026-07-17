@@ -1,0 +1,12 @@
+run,input,downsampling,DDIM-init (t/steps/eta),base model,FT scheme,anchor,align,inference run / outcome
+re2000,raw low-res,random-1024 NN-fill,-,no-EMA,single DDPM t=100 / 100 st / size 1,measured Re2000 (NOT GT-free),no,K1 eval
+re2000_extrap,raw low-res,random-1024 NN-fill,-,no-EMA,single DDPM t=100 / 100 st / size 1,extrapolated,no,K1 eval
+grid4x_extrap,raw low-res,grid-4x,-,no-EMA,single DDPM t=100 / 100 st / size 1,extrapolated,yes (2.0),K1 eval
+grid4x_extrap_ddiminit,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,single DDPM t=100 / 100 st / size 1,extrapolated,yes (2.0),K1/K3
+k2_extrap,raw low-res,grid-4x,-,no-EMA,"K2 S=[100,75] / ~28+20 st / eta=1",extrapolated,yes (2.0),K3 cascade
+k2_extrap_ddiminit,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / eta=1",extrapolated,yes (2.0),K3 cascade
+hk10_cfgmatch,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / eta=1 / band k[10,96)",extrapolated,no,anchor-cost twin study (s17)
+hk10,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,no-EMA,"K2 S=[100,75] / eta=1 / band k[10,96)",extrapolated,no,deep K1-K3 +-lam3 -> CAPPED 0.441
+hk10_emabase,base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,EMA (mu=0.9999),K2 + policy-EMA 0.99,extrapolated,no,deep K1-K3 +-lam3 -> CAPPED 0.427; shadow-vs-online A/B
+obsfit (RUNNING),base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,EMA (mu=0.9999),K2 + policy-EMA 0.99,obs-fit accurate (1.01/0.97/1.06 x GT),no,deep eval queued
+obsfit_gen12 (QUEUED),base-DDIM recon,grid-4x,t=100 / 20 st size 5 / eta=0,EMA (mu=0.9999),K2 + policy-EMA 0.99,obs-fit x1.2 generous,no,deep eval queued

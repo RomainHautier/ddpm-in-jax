@@ -37,13 +37,14 @@ S_MULTI = [150, 100, 50]
 def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", grid_factor=4,
          lam=3.0, n_per_seq=8, batch=16, t_start=100, seed=0, k3=False,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, n_steps=None, s_multi=None,
-         sampler="ddpm", chain_starts=None, policy_ddim_steps=50, eta=1.0):
+         sampler="ddpm", chain_starts=None, policy_ddim_steps=50, eta=1.0, ddim_stages=False):
     global S_MULTI
     if s_multi:
         S_MULTI = [int(x) for x in str(s_multi).split(",")]
     if chain_starts:
         chain_starts = [int(x) for x in str(chain_starts).split(",")]
         t_start = chain_starts[0]                              # x_start is noised to the first chain level
+    ddim_stages = bool(ddim_stages and sampler == "ddim" and chain_starts and len(chain_starts) > 1)
     gt = gt or "flow-data/kf_2d_re1000_256_40seed.npy"
     seqs = [int(x) for x in (val + "," + test).split(",")]
     ddpm, base_params, _ = build_base_ddpm()
@@ -60,8 +61,10 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
         assert not k3 and not n_steps, "--sampler ddim replaces --k3/--n_steps"
         from diag_guided_residual import make_kchain_ddim_sampler
         cs = chain_starts or [t_start]
-        sU = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, 0.0, eta=eta)}
-        sG = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, lam, eta=eta)}
+        sU = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, 0.0,
+                                                eta=eta, return_stages=ddim_stages)}
+        sG = {t_start: make_kchain_ddim_sampler(ddpm.unet, ab, cs, policy_ddim_steps, dx, lam,
+                                                eta=eta, return_stages=ddim_stages)}
     elif n_steps:
         # accelerated inference: strided eta=0 DDIM chains (n_steps per chain) instead of the full
         # stochastic stepwise reverse process
@@ -125,8 +128,12 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
                         outs.setdefault(j + 1, []).append(np.asarray(xc))
             else:
                 key, k1, k2 = jax.random.split(key, 3)
-                outs.setdefault(1, []).append(
-                    np.asarray(sdict[t_start](params, sa * xc + s1 * jax.random.normal(k1, xc.shape), k2)))
+                out = sdict[t_start](params, sa * xc + s1 * jax.random.normal(k1, xc.shape), k2)
+                if ddim_stages:                                # tuple of per-chain outputs -> row per chain
+                    for j, xs in enumerate(out):
+                        outs.setdefault(j + 1, []).append(np.asarray(xs))
+                else:
+                    outs.setdefault(1, []).append(np.asarray(out))
         return {K: np.concatenate(v) for K, v in outs.items()}
 
     for mname, params in (("base", base_params), ("DDPO", ddpo)):
@@ -138,7 +145,7 @@ def main(ddpo_ckpt, re=1000, gt=None, val="32,33,34,35", test="36,37,38,39", gri
                 mse = float(((x0 - xgt) ** 2).mean())
                 pl = float(np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1])
                 ks = eff_resolution(E_r.mean(0), E_gt.mean(0))
-                tag = f"{mname} K{K}" if k3 else mname
+                tag = f"{mname} K{K}" if (k3 or ddim_stages) else mname
                 print(f"{tag:<10}{gname:>7}{hik:>9.3f}{R:>10.2f}{mse:>9.4f}{pl:>11.3f}{ks:>5}", flush=True)
     print(f"{'GT':<10}{'-':>7}{1.0:>9.3f}{Rg.mean():>10.2f}{0.0:>9.4f}{1.0:>11.3f}{'-':>5}", flush=True)
 
@@ -166,6 +173,8 @@ if __name__ == "__main__":
     ap.add_argument("--chain_starts", type=str, default=None, help="e.g. 100,75 (with --sampler ddim)")
     ap.add_argument("--policy_ddim_steps", type=int, default=50, help="total DDIM step budget across chains")
     ap.add_argument("--eta", type=float, default=1.0)
+    ap.add_argument("--ddim_stages", action="store_true",
+                    help="with --sampler ddim + multi chain_starts: one metrics row per chain output")
     ap.add_argument("--ddim_steps", type=int, default=20)
     ap.add_argument("--ddim_t_start", type=int, default=100)
     main(**vars(ap.parse_args()))

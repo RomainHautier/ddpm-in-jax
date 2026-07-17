@@ -31,3 +31,8 @@ build/
 
 # OS
 .DS_Store
+
+# Large external model/result trees — saved to GCS, not git
+pretrained_weights/
+sto-interpolant/
+src/ddpo-ft/
