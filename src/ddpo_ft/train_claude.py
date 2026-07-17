@@ -150,7 +150,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
-         highk_lo=32, policy_ema=0.0):
+         highk_lo=32, policy_ema=0.0, clip_eps=0.2):
     import json
     import pickle
     import jax
@@ -256,7 +256,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         ck = pickle.load(open(resume, "rb"))
         start_iter = ck["iter"] + 1
         trainer = DDPOTrainer(ddpm, ck["params"], reward, optimizer, group_size=group_size,
-                              t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=start_iter,
+                              t_start=t_start, clip_eps=clip_eps, kl_coef=kl, n_inner=n_inner, seed=start_iter,
                               sampling_temp=temp, base_params=base_orig, opt_state=ck["opt_state"],
                               sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
                               chain_starts=chain_starts, ddim_stride=ddim_stride)
@@ -264,7 +264,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     else:
         start_iter = 0
         trainer = DDPOTrainer(ddpm, base_orig, reward, optimizer, group_size=group_size,
-                              t_start=t_start, clip_eps=0.2, kl_coef=kl, n_inner=n_inner, seed=0,
+                              t_start=t_start, clip_eps=clip_eps, kl_coef=kl, n_inner=n_inner, seed=0,
                               sampling_temp=temp, sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
                               chain_starts=chain_starts, ddim_stride=ddim_stride)
 
@@ -313,7 +313,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                         stats=stats_path, scales_re=scales_re),
             train=dict(lr=lr, n_outer=n_outer, group_size=group_size, n_inner=n_inner,
                        sampling_temp=temp, kl_coef=kl, resume=resume,
-                       policy_ema=policy_ema or None),
+                       policy_ema=policy_ema or None, clip_eps=clip_eps),
             git_commit=git_rev, launched="provenance-v1")
         os.makedirs(save_dir, exist_ok=True)
         with open(os.path.join(save_dir, "config.json"), "w") as f:
@@ -424,4 +424,8 @@ if __name__ == "__main__":
                     help="OPTIONAL EMA over policy weights, applied once per outer iteration "
                          "(e.g. 0.99 ~ 100-iter horizon). 0 = off (default). Checkpoints then carry "
                          "ema_params+ema_rate under named keys; eval can compare shadow vs online.")
+    ap.add_argument("--clip_eps", type=float, default=0.2,
+                    help="PPO clip epsilon (ratio clamp 1+-eps). Default 0.2 (standard). Wider "
+                         "(0.3-0.4) allows larger per-update policy steps -> faster travel when the "
+                         "climb is speed-limited, at higher instability risk.")
     main(**vars(ap.parse_args()))
