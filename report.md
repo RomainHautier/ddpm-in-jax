@@ -162,3 +162,15 @@ under matched-everything) stands, and remains EMA-shaped: pure high-k texture, w
 MSE (0.1288, best of any config on their benchmark), residual (1.64) and placement (0.464). Their
 physics-conditioned model (as released) scored ret 0.101 / resid 1.79 / MSE 0.1386 — conservative
 extreme; no threat to the finetuned stack. See results artifact §22.
+
+## §8 EMA arc — outcome (2026-07-17)
+
+Retrain executed (300 ep, mu=0.9999): retrain lifts the base everywhere (their ladder 0.209->0.240,
+K1 0.385->0.401, true-args 0.289->0.314); EMA shadow ~= online at convergence (cleaner resid, hair
+lower ret) — the EMA mechanism is real but small at full convergence; the remaining gap to their
+conditional (0.468 ret at matched args) lives elsewhere. DDPO restack on the EMA base: probe floor
+0.420->0.438, final 0.662; flagship deep+l3 0.553->0.629 (their bench) / 0.819->0.872 (grid-4x);
+OOD Re=2000 cross-regime 0.518->0.555. New EMA-era failure mode: tail k[64,96) overshoot (up to
+1.77x under their dense ladder); hinge-brake sweep shows saturation on cascades (anchor-binding,
+mu-insensitive) -> in-dist flagship runs unbraked; next lever = [64,96)-only hinge. Full tables:
+claude.ai/code/artifact/816fb598-398e-4fa4-ad42-7fdf8b86b921

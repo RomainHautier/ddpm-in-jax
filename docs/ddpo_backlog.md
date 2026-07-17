@@ -318,3 +318,18 @@ luck). Shadow is passive (does not alter training); checkpoints then carry named
 ema_rate; save_ckpt payload unchanged when off. Unit-tested (payload keys + update math). Natural
 first test: the armed Re=2000 GT-free run (monitoring/ema_re2000_driver.sh) — one run yields both
 online and shadow checkpoints to compare.
+
+**Full EMA-stack matrix + old-stack comparability + brake sweep (2026-07-17, artifact
+816fb598).** Old stack re-measured under identical protocol/seeds (old flagship reproduced to the
+digit — 0.553/2.00/0.1438). EMA advantage GROWS with chain depth (their bench: +0.039 K1 -> +0.078
+K3; grid4x: +0.019 -> +0.053); flagship deep+l3: their bench 0.553->0.629, grid4x 0.819->0.872
+(place 0.862->0.891). OOD Re=2000 cross-regime NEW BEST 0.518->0.555 (place 0.830->0.861). Dense
+true-args ladder overshoots on BOTH stacks (old 1.120 / EMA 1.169) — amplifier property, not EMA.
+BRAKE SWEEP on the 86-step cascade (mu 15..230): hinge SATURATES immediately (mu=15 ~= mu=230; the
+cascade re-amplifies each step, hinge clamps band to anchor — anchor is the binding parameter, not
+mu). In-dist verdict: flagship stays UNBRAKED (costs 0.06-0.08 ret for 0.03-0.05 resid; the
+[32,96) hinge drags the still-under-GT [32,64) band too). Brake still right for dense ladders
+(their ladder tail 1.208->0.732 at mu=150) and GT-free OOD. SUPERSEDES the earlier "brake retune"
+note: the sharper lever is a [64,96)-ONLY hinge (or slightly raised anchor), NOT a mu retune.
+Report artifact: claude.ai/code/artifact/816fb598-398e-4fa4-ad42-7fdf8b86b921. Armed, not
+launched: monitoring/ema_re2000_driver.sh (GT-free Re=2000 on EMA base, --policy_ema 0.99).
