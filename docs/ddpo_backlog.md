@@ -343,3 +343,16 @@ NEXT OOD LEVER: raise the extrapolated anchor's tail (better spectral extrapolat
 POLICY-EMA FIRST DATA (same ckpt, shadow mu=0.99 vs online, K3+l3): 0.405/2.03/0.0302/0.876 vs
 0.427/2.26/0.0319/0.867 — shrinkage signature; shadow = cleaner (resid -0.23, MSE -5%, place up)
 for -0.022 ret. Use shadow when quality>retention (OOD), online in-dist. Free choice per ckpt.
+
+**GT-free anchor FIXED via observation-constrained fit (2026-07-17, src/ddpo_ft/anchor_obs_fit.py).**
+Root cause of the old extrap's tail hole decomposed: k_d ~ Re^0.5 scaling law is wrong here
+(empirical exponent grows: 0.56 on 500->1000, 0.71 realized on 1000->2000); slope/amplitude were
+fine. FIX (uses ONLY 4x-subsampled target samples): measure observation transfer T(k) on known
+regimes -> fit spectrum model to T-corrected observed band k[6,30] with alpha/p priors + k_d
+scaling-law prior (empirical exponent) -> two-sided leave-one-regime-out validation (500<->1000)
+gives bias correction + error bar (both directions recover k_d to <1 shell). RESULT vs true Re2000
+(report-only): bands 1.01/0.97/1.06 (was 0.91/0.82/0.81). Variants saved:
+base_results/regime_stats_re2000_obsfit.npz (accurate) and _obsfit_gen12.npz (x1.2 tail generosity
+= in-dist anchor profile 1.08/1.12/1.16 that trains well). PREDICTION (falsifiable): dedicated
+GT-free finetune with --stats regime_stats_re2000_obsfit_gen12.npz beats cross-regime 0.555
+(old anchor capped it at 0.427). Retrain not yet launched — user decides.
