@@ -333,3 +333,13 @@ mu). In-dist verdict: flagship stays UNBRAKED (costs 0.06-0.08 ret for 0.03-0.05
 note: the sharper lever is a [64,96)-ONLY hinge (or slightly raised anchor), NOT a mu retune.
 Report artifact: claude.ai/code/artifact/816fb598-398e-4fa4-ad42-7fdf8b86b921. Armed, not
 launched: monitoring/ema_re2000_driver.sh (GT-free Re=2000 on EMA base, --policy_ema 0.99).
+
+**Dedicated GT-free Re=2000 on EMA base: ANCHOR-CAPPED (2026-07-17).** Run healthy (reward -11.1->
+-8.7, gstd 0.60-0.72 no collapse, |A| 0.83) yet deep-eval K3+l3 ret 0.427 vs old dedicated 0.441 —
+identical cap, base swap irrelevant. Cross-regime EMA-ft(Re1000) remains OOD best at 0.555. ROOT
+CAUSE: extrapolated anchor under-predicts the true Re=2000 tail and the spec reward is a DISTANCE
+(penalizes above-anchor too) -> training pulls the policy TO the anchor. NOT a signal problem.
+NEXT OOD LEVER: raise the extrapolated anchor's tail (better spectral extrapolation), then retrain.
+POLICY-EMA FIRST DATA (same ckpt, shadow mu=0.99 vs online, K3+l3): 0.405/2.03/0.0302/0.876 vs
+0.427/2.26/0.0319/0.867 — shrinkage signature; shadow = cleaner (resid -0.23, MSE -5%, place up)
+for -0.022 ret. Use shadow when quality>retention (OOD), online in-dist. Free choice per ckpt.
