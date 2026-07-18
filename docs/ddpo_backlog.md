@@ -378,3 +378,14 @@ genuine policy improvements, NOT sampler artifacts — verified before claiming 
 NEXT: temp 2.5 (find the optimum in the proven direction); temp2.0 + lr 7.5e-5 (1.5x, in the
 cleaner-gradient regime, early-kill on 2 consecutive probe drops); n_inner/group_size as
 noise-reducing alternatives to raising lr.
+
+**temp 2.5 -> ret 0.799 on OOD Re=2000 (2026-07-18).** Continuing the temperature direction from
+temp2.0 iter0599: deep K3+lam3 **0.799** / resid 2.55 / MSE 0.0327 / place 0.813 / **k*=82**.
+Progression base 0.297 -> gen12@400 0.485 -> temp2.0@599 0.630 -> temp2.5@799 0.799 (GT = 1.000).
+REFRAME (important, corrects earlier wording): rising PDE residual is NOT a cost — GT's own residual
+is 3.01 and an over-smoothed field has a LOW one (base 1.89). So 1.89->2.29->2.39->2.55 is
+convergence TOWARD the physical truth. Real costs are MSE (0.0301->0.0327, expected for an
+amplifier: statistically-right texture is not pixel-exact) and PLACEMENT (0.871->0.846->0.813,
+falling monotonically with temp). PLACEMENT IS THE STOPPING CRITERION for this lever — retention
+climbs much faster than placement falls so the trade is still strongly favourable, but far enough
+up the temperature axis is just well-calibrated noise. temp 3.0 queued with that as the read-out.
