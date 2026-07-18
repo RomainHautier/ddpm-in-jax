@@ -356,3 +356,25 @@ base_results/regime_stats_re2000_obsfit.npz (accurate) and _obsfit_gen12.npz (x1
 = in-dist anchor profile 1.08/1.12/1.16 that trains well). PREDICTION (falsifiable): dedicated
 GT-free finetune with --stats regime_stats_re2000_obsfit_gen12.npz beats cross-regime 0.555
 (old anchor capped it at 0.427). Retrain not yet launched — user decides.
+
+**BREAKTHROUGH: sampling temperature is the OOD throttle (2026-07-18).** Dedicated GT-free Re=2000
+finetuning now BEATS cross-regime transfer for the first time: temp=2.0 resumed from gen12 iter0399
+(+200 iters) -> deep K3+lam3 ret **0.630** / resid 2.39 / MSE 0.0310 / place 0.846 / **k*=75**,
+vs its own start 0.485 (k*=41), vs null expectation ~0.513, vs cross-regime champion 0.555.
+Probe climbed 0.381->0.467 (+0.086/200 iters = ~3x the standard +0.028 rate), never destabilized.
+LEVER RANKING from the full campaign (all measured, same protocol/eval):
+  temp 1.5->2.0    : +0.145  <-- the throttle (exploration)
+  iterations       : +0.028 / 200 iters (linear, no plateau, anchor-independent)
+  anchor 0.78->1.2 : +0.024 at 400 iters (weak ~7% pass-through; real but modest)
+  clip 0.2->0.35   : NULL (probe peaks early 0.416 then decays; clamp was never binding)
+  lr 5e-5->1.5e-4  : DIVERGES (probe 0.381->0.318->0.296, below base, in 20 iters)
+MECHANISM: gstd FELL with temp (0.736->0.577) while reward ROSE (-13.50->-12.36) — so it is NOT
+"more signal spread"; it is exploration: wider reverse-step noise reaches trajectories the policy
+never sampled, and those gains compound. Consistent with clip-null (clamp not binding) + lr-divergence
+(gradients too noisy for big steps): the binder was never step size, it was trajectory coverage.
+COSTS: placement 0.871->0.846, resid 2.29->2.39, MSE 0.0301->0.0310 (amplifier trade, acceptable).
+NOTE probe_x0 uses a deterministic temp=1 eval rollout (ppo_claude.py:437), so probe gains are
+genuine policy improvements, NOT sampler artifacts — verified before claiming the result.
+NEXT: temp 2.5 (find the optimum in the proven direction); temp2.0 + lr 7.5e-5 (1.5x, in the
+cleaner-gradient regime, early-kill on 2 consecutive probe drops); n_inner/group_size as
+noise-reducing alternatives to raising lr.
