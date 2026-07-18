@@ -150,7 +150,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
-         highk_lo=32, policy_ema=0.0, clip_eps=0.2):
+         highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None):
     import json
     import pickle
     import jax
@@ -219,11 +219,15 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     print(f"data-parallel over {nd} device(s)", flush=True)
     if smoke:
         t_start, n_inputs, group_size, n_inner, temp, kl = t_start or 3, nd, 2, 2, 1.5, 0.01
+        temp = sampling_temp if sampling_temp is not None else temp
+        kl = kl_coef if kl_coef is not None else kl
         n_outer = n_outer or 2
     else:
         # t_start override: policy SDEdit start level (renoise-decorrelation study -> t=50 keeps 93%
         # of the DDIM recon's placement signal vs 59% at the default 100; chains half as long)
         t_start, n_inputs, group_size, n_inner, temp, kl = t_start or 100, nd, 8, 4, 1.5, 0.01
+        temp = sampling_temp if sampling_temp is not None else temp
+        kl = kl_coef if kl_coef is not None else kl
         n_outer = n_outer or 300
     if chain_starts:
         t_start = int(chain_starts[0])    # multi-phase: SDEdit level = first chain's start
@@ -424,6 +428,12 @@ if __name__ == "__main__":
                     help="OPTIONAL EMA over policy weights, applied once per outer iteration "
                          "(e.g. 0.99 ~ 100-iter horizon). 0 = off (default). Checkpoints then carry "
                          "ema_params+ema_rate under named keys; eval can compare shadow vs online.")
+    ap.add_argument("--sampling_temp", type=float, default=None,
+                    help="rollout sampling temperature (default 1.5). Higher -> more trajectory "
+                         "diversity -> larger within-group advantage spread (stronger signal).")
+    ap.add_argument("--kl_coef", type=float, default=None,
+                    help="KL leash to the base policy (default 0.01). Lower -> policy free to travel "
+                         "further from base.")
     ap.add_argument("--clip_eps", type=float, default=0.2,
                     help="PPO clip epsilon (ratio clamp 1+-eps). Default 0.2 (standard). Wider "
                          "(0.3-0.4) allows larger per-update policy steps -> faster travel when the "
