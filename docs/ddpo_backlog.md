@@ -389,3 +389,19 @@ amplifier: statistically-right texture is not pixel-exact) and PLACEMENT (0.871-
 falling monotonically with temp). PLACEMENT IS THE STOPPING CRITERION for this lever — retention
 climbs much faster than placement falls so the trade is still strongly favourable, but far enough
 up the temperature axis is just well-calibrated noise. temp 3.0 queued with that as the read-out.
+
+**temp 2.5 DOMINATES temp 3.0 at equal compute; OOD now 0.921, in-dist 0.967 (2026-07-19).**
+Controlled head-to-head from the SAME temp2.5 iter0799 checkpoint, both +200 iters to 999:
+  temp 3.0 : ret 0.870 / resid 2.62 / MSE 0.0390 / place 0.798 / k*=71
+  temp 2.5 : ret 0.921 / resid 2.60 / MSE 0.0356 / place 0.807 / k*=84   <-- dominates on ALL FOUR
+So 3.0 is not merely "past the optimum with costs" — it is strictly worse. temp 2.5 is THE operating
+point. Iterations at 2.5 still compound hard (+0.122 in 200 iters: 0.799 -> 0.921 vs GT 1.000).
+IN-DIST temp 2.5 also works (Re=1000 flagship +200 iters): ret 0.967 / resid 1.66 / MSE 0.0197 /
+place 0.847 / k*=86 vs base 0.472 — near spectral parity with GT. CAVEAT: in-dist the residual now
+OVERSHOOTS (1.66 vs GT 1.06) and placement falls 0.900->0.847, i.e. in-dist we have moved from
+filling a deficit to adding excess roughness — the in-dist optimum is probably BELOW 2.5 (the model
+was already at ~87% retention pre-temp, vs OOD's 30%, so far less deficit to fill). Matched-protocol
+eval of the standard-temp flagship queued to make the in-dist delta exact (0.967 came from
+eval_guided_full; the 0.872 figure came from a different frame set — not apples-to-apples yet).
+OPEN: seed repeats for variance (every number in this campaign is a single run); in-dist temp sweep
+below 2.5 (try 1.75/2.0); kl_coef / n_inner / group_size still untested.
