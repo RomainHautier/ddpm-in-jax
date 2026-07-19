@@ -429,3 +429,24 @@ below 2.5 (try 1.75/2.0); kl_coef / n_inner / group_size still untested.
     not 0.872, and a LOWER temp is closer to correct).
 OPEN: in-dist temp 2.0 + OOD seed repeat (running); cold inference sweep 0.3-0.7 + eta=0 (queued);
 kl_coef / n_inner / group_size still untested.
+
+**SEED REPEAT FORCES A CORRECTION; cold inference optimum; eta=0 is NOT the temp->0 limit (2026-07-19).**
+(1) SEED VARIANCE MEASURED (the most important result here). OOD temp2.5 @999, identical config,
+    seed 1234 vs original: ret 0.842 vs 0.921 => TRAINING-SEED SPREAD ~0.079 (~ +-0.04), 5x the
+    +-0.015 eval-seed noise. CONSEQUENCE: temp3.0's 0.870 falls BETWEEN the two temp2.5 seeds, so
+    "temp 2.5 dominates temp 3.0" is NOT SUPPORTED at n=1 per config. RETRACTED. The large effects
+    survive comfortably (temp 1.5->2.5: 0.485 -> 0.88+-0.04), but every fine-grained margin in this
+    campaign (<0.08) needs n>=3 before it can be claimed.
+(2) IN-DIST temp sweep is NON-MONOTONIC in retention once variance is admitted:
+      1.5 -> 0.917 (k*95) | 1.75 -> 1.043 (k*95) | 2.0 -> 1.116 (k*95) | 2.5 -> 0.967 (k*86)
+    Retention cannot separate 1.75/2.0/2.5 given +-0.04. The metric that DOES separate cleanly is
+    k*: 95 for temps <=2.0, 86 at 2.5. DEFENSIBLE CLAIM: temp <=2.0 preserves spectral shape, 2.5
+    degrades it. NOT defensible: "1.75 is the in-dist optimum" (earlier entry over-claimed).
+(3) COLD INFERENCE SWEEP (fixed weights, no retraining) keeps improving as temp falls:
+      0.30 -> 0.958 (k*87) | 0.45 -> 0.951 | 0.60 -> 0.942 | 0.70 -> 0.934 | 1.00 -> 0.906
+    BEST OOD CONFIG = temp2.5-trained model @ INFERENCE TEMP 0.30 -> ret 0.958, k*=87, free.
+(4) eta=0 IS NOT THE temp->0 LIMIT: eta=0 gives ret 0.551 / k*=59 (vs 0.958 at temp 0.30). With
+    eta=1 the DDIM mean uses sqrt(1-ab_n-sigma^2) and temp scales ONLY the added noise; eta=0
+    changes the MEAN term itself. Different samplers, 0.4 retention apart.
+NEXT (properly powered): n>=3 seeds per config for any comparison with margin <0.08; kl_coef /
+n_inner / group_size still untested; inference temp below 0.30 not yet probed.
