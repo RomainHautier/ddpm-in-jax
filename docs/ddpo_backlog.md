@@ -405,3 +405,27 @@ eval of the standard-temp flagship queued to make the in-dist delta exact (0.967
 eval_guided_full; the 0.872 figure came from a different frame set — not apples-to-apples yet).
 OPEN: seed repeats for variance (every number in this campaign is a single run); in-dist temp sweep
 below 2.5 (try 1.75/2.0); kl_coef / n_inner / group_size still untested.
+
+**INFERENCE-temp is a free lever; in-dist optimum is BELOW 2.5 (2026-07-19).**
+(1) INFERENCE-temp sweep on FIXED weights (best OOD model, temp2.5-trained, no retraining):
+      0.70 -> ret 0.934 / resid 2.55 / MSE 0.0350 / place 0.801 / k*=86
+      0.85 -> 0.921        1.00 -> 0.906 (default)   1.20 -> 0.885   1.40 -> 0.864
+    MONOTONE: colder inference is strictly better on ALL FIVE metrics. +0.028 retention for free.
+    Mechanism: the model was TRAINED under temp 2.5 so its score fn compensates for heavy noise;
+    at inference you want the amplifying correction WITHOUT the stochastic dispersion. Training-time
+    exploration and inference-time stochasticity are opposite needs. eta=0 limit queued.
+(2) EVAL-SEED NOISE MEASURED: the sweep's temp=1.0 row (0.906) is the same model/settings as the
+    earlier deep eval (0.921) — only the sampling seed differs => eval noise ~ +-0.015. ANY margin
+    below ~0.02 in this campaign is inside the noise floor. CORRECTION: the temp2.5-vs-3.0
+    "dominates on all four" claim should read "dominates on ret/MSE/k*, TIES on placement"
+    (0.807 vs 0.798 is within noise).
+(3) IN-DIST temp sweep downward — 2.5 was PAST OPTIMUM, as predicted:
+      standard (1.5): ret 0.917 / resid 1.86 / place 0.885 / k*=95
+      temp 1.75     : ret 1.043 / resid 1.68 / place 0.877 / k*=95   <-- keeps SHAPE fidelity
+      temp 2.5      : ret 0.967 / resid 1.66 / place 0.847 / k*=86   <-- shape degrades
+    Retention now OVERSHOOTS (1.043 > GT 1.000); 1.0 is perfect, not maximal, so score by |ret-1|.
+    temp 1.75 wins on the metrics that catch MISALLOCATED energy (k*, placement) => better in-dist
+    operating point. Earlier "0.967 = near spectral parity" was wrong twice over (baseline was 0.917
+    not 0.872, and a LOWER temp is closer to correct).
+OPEN: in-dist temp 2.0 + OOD seed repeat (running); cold inference sweep 0.3-0.7 + eta=0 (queued);
+kl_coef / n_inner / group_size still untested.
