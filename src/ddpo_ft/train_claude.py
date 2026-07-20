@@ -158,7 +158,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
-         highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None):
+         highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
+         pde_two_sided=False):
     import json
     import pickle
     import jax
@@ -219,9 +220,10 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
               flush=True)
     reward = Reward.from_calibration(
         stats_path, "base_results/reward_calibration.json",
-        re=re, weights=exp2_weights, pde_hinge=True, scales_re=scales_re,
+        re=re, weights=exp2_weights, pde_hinge=not pde_two_sided, scales_re=scales_re,
         pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=(highk_lo, 96))
-    print("reward weights:", reward.weights, "| pde_hinge=True", flush=True)
+    print("reward weights:", reward.weights, f"| pde_hinge={not pde_two_sided}"
+          + ("  [TWO-SIDED pde: pushes residual UP toward the floor when below it]" if pde_two_sided else ""), flush=True)
 
     nd = jax.local_device_count()
     print(f"data-parallel over {nd} device(s)", flush=True)
@@ -323,7 +325,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                         chain_starts=list(chain_starts) if chain_starts else None,
                         ddim_stride=ddim_stride),
             reward=dict(weights=dict(reward.weights), scales=dict(reward.scales),
-                        highk_band=[highk_lo, 96], pde_hinge=True,
+                        highk_band=[highk_lo, 96], pde_hinge=not pde_two_sided,
                         stats=stats_path, scales_re=scales_re),
             train=dict(lr=lr, n_outer=n_outer, group_size=group_size, n_inner=n_inner,
                        sampling_temp=temp, kl_coef=kl, resume=resume,
@@ -438,6 +440,10 @@ if __name__ == "__main__":
                     help="OPTIONAL EMA over policy weights, applied once per outer iteration "
                          "(e.g. 0.99 ~ 100-iter horizon). 0 = off (default). Checkpoints then carry "
                          "ema_params+ema_rate under named keys; eval can compare shadow vs online.")
+    ap.add_argument("--pde_two_sided", action="store_true",
+                    help="use the TWO-SIDED pde log-ratio (ln R^2 - ln floor)^2 instead of the "
+                         "one-sided hinge: actively pushes residual UP toward the floor when the "
+                         "solution is too smooth (the hinge is slack below the floor and cannot).")
     ap.add_argument("--seed", type=int, default=None,
                     help="RNG seed for rollouts (default: start_iter on resume, else 0). Set "
                          "explicitly for seed-repeat variance runs.")
