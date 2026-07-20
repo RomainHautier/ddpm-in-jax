@@ -52,6 +52,14 @@ RE_CFG = {
                train_seqs=[8, 9, 10, 11], probe_seq=0),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
                train_seqs=[8, 9, 10, 11], probe_seq=0),
+    # Re=10000: CLEAN disjoint split. NOTE the Re=2000/500 entries above train on [8,9,10,11] while
+    # the eval driver uses test=10..19 -> seqs 10,11 leak (measured impact -0.013, inside eval
+    # noise, because DDPO uses the pool as a state distribution rather than fitting targets — but
+    # it is still a leak). Re=10000 avoids it entirely: train 20-23, probe 24, eval val 0-9 /
+    # test 10-19, all disjoint. 40 sequences available.
+    10000: dict(gt="flow-data/kf_re10000_256_40seed.npy",
+                stats="base_results/regime_stats_re10000_blind.npz",
+                train_seqs=[20, 21, 22, 23], probe_seq=24),
 }
 
 
