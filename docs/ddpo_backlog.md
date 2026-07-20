@@ -500,3 +500,29 @@ failing to reach. Same reason METHOD B (raw LR) fails.
 BLIND-FLOOR SCOREBOARD at Re=10000 (true 2156-2297): Re-scaling 5183 = 2.4x OVER (safe, IN USE);
 raw-LR 51 = 42x under; base-recon 95 = 24x under. Prefer over-estimation: a hinge that is too high
 merely goes slack, one that is too low fires on physical samples and drives over-smoothing.
+
+**Re=10000 RESULT (2026-07-20): blind anchor works, temperature rule confirmed, placement is the ceiling.**
+Setup: anchor blind from Re=500+1000 ONLY (grades 1.18x truth); clean disjoint split (train 20-23,
+probe 24, test 10-19); PDE floor 5183 (blind Re-scaling). Base recovers just 9.4% of hi-k -> the
+most starved regime yet (Re=2000 30%, in-dist 92%).
+TEMPERATURE RULE CONFIRMED AS A PREDICTION: temp 2.5 PLATEAUED (reward flat -13.48, spec_hik stuck
+2.49 across 100 iters, gstd healthy 0.485 = under-exploration not signal collapse). Our rule says
+the optimum tracks DISTANCE FROM TARGET, so a 9.4% deficit should want >2.5. Resumed at temp 3.5 ->
+plateau broke immediately (probe 0.135 -> 0.24, spec_hik 2.49 -> 0.22). Falsifiable: temp 3.0 was
+WORSE at Re=2000, so "hotter is better" would have been wrong; the optimum MOVES with the deficit.
+CHECKPOINT SWEEP (K3+lam3, clean test seqs): base 0.184/place 0.711/k*25 ->
+  249: 0.792/0.659/67 | 299: 0.768/0.659/66 | 349: 0.957/0.633/69 |
+  399: 0.983/0.626/68 <-- BEST |ret-1|=0.017 | 449: 1.035/0.589/70 | 499: 1.072/0.599/69
+CEILING: NO checkpoint gets both. Placement falls monotonically as retention climbs and even the
+best-placement checkpoint (0.659) is BELOW the base (0.711). Contrast Re=2000, where the best model
+held placement within 0.06 of base (0.807 vs 0.868) at 0.92 retention. Second diagnostic: model
+residual 4.25 vs GT 28.78 — 7x SMOOTHER dynamically while carrying comparable spectral energy =
+right amount of energy, wrong places, too clean.
+INTERPRETATION: from a 9.4% deficit the model SYNTHESISES most of the fine structure rather than
+refining what the input constrains, and a 4x-downsampled input does not determine where k~70
+structures belong. INFORMATION LIMIT OF THE OBSERVATION, not a tuning failure. This marks where the
+method stops buying physical fidelity — retention keeps improving, placement does not follow.
+CAVEAT on the dataset: Re=10000's spectrum is anomalous above k~100 (LESS energy than Re=2000,
+physically impossible) -> grid-limited. A good score means matching THIS SIMULATION, not recovering
+true Re=10000 turbulence. Not detectable GT-free with any method we have.
+Report: claude.ai/code/artifact/816fb598-398e-4fa4-ad42-7fdf8b86b921 (v18)
