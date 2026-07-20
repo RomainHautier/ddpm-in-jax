@@ -450,3 +450,15 @@ kl_coef / n_inner / group_size still untested.
     changes the MEAN term itself. Different samplers, 0.4 retention apart.
 NEXT (properly powered): n>=3 seeds per config for any comparison with margin <0.08; kl_coef /
 n_inner / group_size still untested; inference temp below 0.30 not yet probed.
+
+**temp vs eta clarified; original advantage-spread rationale CORRECTED in code (2026-07-19).**
+temp is ONE parameter used with OPPOSITE objectives: training wants it WIDE (exploration: reach
+unvisited trajectories), inference wants it NARROW (fresh noise is white and later steps partially
+smooth it, so each renoise/denoise cycle costs fine structure). Applied consistently to rollouts AND
+log-probs, so temp REDEFINES pi_theta — deploying a temp2.5-trained policy at temp 0.30 is a
+DELIBERATE train/test mismatch (means learned assuming heavy noise follows, then not supplying it),
+and it WINS (+0.05). eta is NOT the same knob: it enters BOTH sigma and the mean via
+sqrt(1-ab_n-sigma^2), so eta=0 is variance-PRESERVING/deterministic while eta=1 + small temp is
+variance-DEFICIENT -> different trajectories, 0.4 retention apart. DOCSTRING FIX: ppo_claude.py
+claimed temp>1 works by widening K-sample spread for a "stronger advantage signal"; measured gstd
+FELL 0.736->0.577 while reward ROSE — spread is a symptom, not the driver. Corrected in code.

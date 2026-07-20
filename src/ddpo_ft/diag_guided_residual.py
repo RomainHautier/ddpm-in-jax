@@ -117,6 +117,15 @@ def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
                              eta=1.0, temp=1.0, return_stages=False, stride=None,
                              brake_func=None, mu=0.0):
+    # INFERENCE TEMPERATURE (measured 2026-07-19): colder is MONOTONICALLY better on every metric.
+    # On the temp2.5-trained OOD model: temp 1.00 -> ret 0.906, 0.70 -> 0.934, 0.30 -> 0.958 (k*87),
+    # free (no retraining). Training wants wide noise (exploration); inference wants narrow noise —
+    # fresh noise is white and later steps partially smooth it, so each renoise/denoise cycle costs
+    # fine structure. Deploying a temp2.5-trained policy at temp 0.3 is a DELIBERATE train/test
+    # mismatch: the learned means assume heavy noise will follow, and we do not supply it.
+    # eta IS A DIFFERENT KNOB: it enters BOTH sigma AND the mean via sqrt(1-ab_n-sigma^2), so eta=0
+    # is variance-PRESERVING and deterministic, whereas eta=1 with small temp is variance-DEFICIENT.
+    # They are not the same limit: eta=0 -> ret 0.551 (k*59) vs temp 0.30 -> 0.958 (k*87).
     """Inference-side mirror of ppo_claude.build_ddim_rollout: stochastic-DDIM (Song eq.16) K-chain
     sampler — chain j from chain_starts[j] (descending), schedules from kchain_schedules (n_steps
     total budget split proportionally), deterministic x0-prediction per chain, renoise (forward q)

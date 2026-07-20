@@ -69,8 +69,16 @@ def policy_mean_std(unet, params, x_t, t, alpha_bar, beta_schedule,
 
     Identical DDPM posterior-mean formula as model.jit_denoise_step. Only `mean` depends on theta.
     `std = temp * sqrt(beta_t)`: `temp` is the SAMPLING TEMPERATURE — temp>1 widens the reverse-step
-    Gaussian to make the K samples of an input more diverse (stronger advantage signal), applied
-    CONSISTENTLY here (used by both rollout sampling and log-prob eval, so the PPO ratio stays valid).
+    Gaussian, applied CONSISTENTLY here (used by both rollout sampling and log-prob eval, so the PPO
+    ratio stays valid; temp therefore REDEFINES the policy pi_theta, it is not a behaviour/target
+    mismatch).
+    NOTE (measured 2026-07-19, corrects the original rationale): raising temp does NOT work by
+    widening the K-sample reward spread. Measured 1.5 -> 2.0, the within-group spread FELL
+    (gstd 0.736 -> 0.577) while reward ROSE (-13.50 -> -12.36). The mechanism is EXPLORATION in the
+    state-visitation sense: wider reverse-step noise reaches trajectories the policy never sampled;
+    once it finds a better region its outcomes become MORE consistent. Spread is a symptom, not the
+    driver. Empirically the dominant lever in the whole DDPO stack (OOD ret 0.485 -> 0.88+-0.04).
+    At INFERENCE the opposite holds — see make_kchain_ddim_sampler: colder is monotonically better.
     `t` is a Python/traced int; the batch shares it.
     """
     B = x_t.shape[0]
