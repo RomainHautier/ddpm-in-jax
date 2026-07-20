@@ -200,7 +200,19 @@ class Reward:
                      used when this arg is None."""
         stats = load_regime_stats(stats_path)
         calib = load_calibration(calib_path)
-        regime = calib["regimes"][str(int(re))]
+        # A NOVEL target regime (e.g. Re=10000) has no calibration entry. Fall back to the
+        # scales_re regime, which is what --scales_re already says to normalise with. The only
+        # thing `regime` supplies is a residual_ref fallback, and the stats npz overrides that
+        # when it carries its own.
+        _rk = str(int(re))
+        if _rk in calib["regimes"]:
+            regime = calib["regimes"][_rk]
+        elif scales_re is not None:
+            regime = calib["regimes"][str(int(scales_re))]
+            print(f"    no calibration entry for Re={_rk} — falling back to Re={int(scales_re)} "
+                  f"(pde floor NOT regime-adapted)", flush=True)
+        else:
+            raise KeyError(f"no calibration entry for Re={_rk} and no --scales_re given")
         sc_regime = calib["regimes"][str(int(scales_re))] if scales_re is not None else regime
         scales = dict(sc_regime.get("scales") or {})
         # in log-ratio (pde_lr) mode the pde scale to use is the json's "pde_lr" entry

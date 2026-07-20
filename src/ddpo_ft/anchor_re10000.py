@@ -1,5 +1,13 @@
 """Blind GT-free anchor for Re=10000, built from Re=500 + Re=1000 ONLY.
 
+LIMITATION (documented, not worked around): residual_ref is deliberately NOT supplied. The
+calibration json's residual_ref lives in a different normalisation from the eval's mean|R|
+(json Re=1000 = 17.46 vs eval GT mean|R| = 1.06), and its 500->1000 ratio implies an exponent
+of 3.48 that extrapolates absurdly. Rather than fabricate a number in units we cannot verify,
+the reward falls back to the Re=1000 entry (coherent with --scales_re 1000). Consequence: the
+PDE floor is NOT regime-adapted for Re=10000. pde weight is 1.0 against spec_highk 3.0, so the
+spectral terms dominate, but this is a real caveat on the pde component.
+
 CONSTRUCTION INPUTS (strict):
   - Re=500 and Re=1000 full fields: spectrum-model fits (logA, alpha, k_d, p) + the empirical
     k_d ~ Re^q exponent measured BETWEEN them.
