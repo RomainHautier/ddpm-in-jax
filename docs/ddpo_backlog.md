@@ -462,3 +462,26 @@ sqrt(1-ab_n-sigma^2), so eta=0 is variance-PRESERVING/deterministic while eta=1 
 variance-DEFICIENT -> different trajectories, 0.4 retention apart. DOCSTRING FIX: ppo_claude.py
 claimed temp>1 works by widening K-sample spread for a "stronger advantage signal"; measured gstd
 FELL 0.736->0.577 while reward ROSE — spread is a symptom, not the driver. Corrected in code.
+
+**PDE floor (residual_ref): how to set it blind, and two ways that FAIL (2026-07-20).**
+The pde term is a HINGE: max(0, ln(mean R^2) - ln(residual_ref))^2. residual_ref is the GT
+discretization floor. Too LOW => fires on physically-correct samples and swamps the spectral terms
+(pde scale ~0.39 amplifies it ~2.6x); too HIGH => hinge merely goes slack. ERR HIGH.
+MEASURED mean(R^2) on proper consecutive-frame triplets (reproduces the calibration json):
+  Re= 500 -> 1.57 (json 1.56) | Re=1000 -> 10.2 (json 17.5) | Re=2000 -> 75.9 (json 46.0)
+  Re=10000 -> 2156.5  [report-only]
+METHOD A (used): Re-scaling from Re=500/1000, exponent b=2.705 -> residual_ref(10000)=5183.
+  2x validation: predicts 66.6 vs measured 46.0 = 1.45x OVER. At 10x: 5183 vs 2156 = 2.4x OVER.
+  Over-prediction is the SAFE direction for a hinge. THIS IS WHAT THE RUN USES.
+METHOD B (tested, FAILS): evaluate the residual on the target's own LOW-RES observations (no GT
+  needed — the LR fields are real data) and map LR->HR using the known regimes. The HR/LR ratio is
+  NOT stable: 0.023 / 0.044 / 0.122 / 1.391 for Re=500/1000/2000/10000 (60x drift). Calibrated on
+  500+1000 it predicts 20.6 at Re=2000 (measured 75.9, 0.27x) and 51.4 at Re=10000 (true 2156,
+  42x TOO LOW — the dangerous direction). Reason: LR residual is dominated by coarse-grid
+  discretization error, nearly Re-independent, while HR residual explodes with fine structure.
+METHOD C (FATAL, was nearly shipped): fall back to the Re=1000 json entry (17.46) when the target
+  regime has no calibration row. That is ~123x too low for Re=10000 -> constant max-strength
+  penalty on every sample incl. GT-quality ones, dominating the reward with a smoothness push.
+ALSO: the Re=2000 GT-free runs used residual_ref=26.29 from the extrap npz vs a MEASURED 45.99 —
+i.e. the floor was ~1.75x too low and the pde term was over-strict all along. Those results were
+obtained DESPITE a pde term fighting high-k energy addition, not because of a tuned one.
