@@ -485,3 +485,18 @@ METHOD C (FATAL, was nearly shipped): fall back to the Re=1000 json entry (17.46
 ALSO: the Re=2000 GT-free runs used residual_ref=26.29 from the extrap npz vs a MEASURED 45.99 —
 i.e. the floor was ~1.75x too low and the pde term was over-strict all along. Those results were
 obtained DESPITE a pde term fighting high-k energy addition, not because of a tuned one.
+
+**METHOD D (tested, FAILS): PDE floor from the BASE-DDIM RECON of the LR input.** Idea: the recon
+is at 256^2 (right resolution for the operator), carries correct large-scale structure, and uses no
+target GT — so evaluate mean(R^2) on it and map recon->GT using the known regimes. MEASURED
+recon/GT: 3.72 / 0.64 / 0.21 / 0.09 at Re=500/1000/2000/10000 — a 40x drift. Calibrated on 500+1000
+it predicts 95 at Re=10000 vs a true 2297 (24x UNDER, the dangerous direction).
+STRUCTURAL REASON (rules out the whole family): the recon is smoother than GT, and HOW MUCH
+smoother is precisely what varies with Re — the base over-produces structure at Re=500 (3.72x) and
+progressively under-produces as Re rises (0.09x at 10000). That deficit-vs-Re curve IS the problem
+DDPO exists to fix, so any estimator built from the model's own output carries a bias coupled to
+the failure it is meant to calibrate. You cannot use the model's output to measure the target it is
+failing to reach. Same reason METHOD B (raw LR) fails.
+BLIND-FLOOR SCOREBOARD at Re=10000 (true 2156-2297): Re-scaling 5183 = 2.4x OVER (safe, IN USE);
+raw-LR 51 = 42x under; base-recon 95 = 24x under. Prefer over-estimation: a hinge that is too high
+merely goes slack, one that is too low fires on physical samples and drives over-smoothing.
