@@ -526,3 +526,19 @@ CAVEAT on the dataset: Re=10000's spectrum is anomalous above k~100 (LESS energy
 physically impossible) -> grid-limited. A good score means matching THIS SIMULATION, not recovering
 true Re=10000 turbulence. Not detectable GT-free with any method we have.
 Report: claude.ai/code/artifact/816fb598-398e-4fa4-ad42-7fdf8b86b921 (v18)
+
+**Why the two-sided pde was a NULL at temp 3.5, and the anneal redesign (2026-07-21).**
+MEASURED: K2 rollouts at temp 3.5 have residual^2 = 5377 (units: make_residual_loss on normalized
+triplets) vs the deployed temp-1 cascade's ~40 and GT's 1610. The exploration noise contributes
+~99% of the rollout residual -> the pde term's measurement channel is SATURATED at the training
+operating point: it cannot distinguish a dynamically-rough model from a smooth one, whatever the
+hinge shape or floor value (c_pde = 0.001-0.004 with the two-sided term active). GENERAL PRINCIPLE:
+the reward only ever evaluates the TRAINING operating point, which sits 2.5 temperature units from
+deployment — every reward term sees noise-inflated statistics, not just pde.
+HOT-INFERENCE DEPLOYMENT: tested and NULL — sampling the fixed weights hotter raises deployed
+residual^2 only 40 -> 104 at itemp 2.5 (GT 1610, still 15x short) while ret/place/k* all degrade.
+The smoothness is in the weights, not the sampler.
+REDESIGN (running): TWO-PHASE ANNEAL. Hot phase (temp 3.5) found spectral parity; cold phase
+resumes best ckpt at temp 1.5 with --pde_two_sided, where the rollout noise floor is low enough
+for the pde term to finally see the model's own smoothness (expected c_pde ~18 vs 0.001).
+Refinement, not search. Then Re=2000 floorfix (re-queued; old waiter was stuck on a dead marker).
