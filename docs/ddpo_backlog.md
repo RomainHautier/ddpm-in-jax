@@ -562,3 +562,14 @@ OVERSHOOT: with the constraint released the model converges to its actual target
 1.2x GT -> deployed 1.09. The over-low floor was an ACCIDENTAL REGULARIZER cancelling the
 over-generous anchor. TESTABLE NEXT: corrected floor + ACCURATE obsfit anchor (not gen12) should
 land ~1.0 with the k*=89 shape gain and no overshoot.
+
+**PRINCIPLED CONFIG CONFIRMS THE PREDICTION (2026-07-22): accurate anchor + corrected floor -> parity.**
+Three-way from the SAME iter0999 checkpoint, +200 iters each, clean test seqs, K3+lam3:
+  parent      (anchor 1.2x WRONG, floor 26.29 WRONG): ret 0.908 |d|=0.092 place 0.808 k*83
+  floorfix    (anchor 1.2x WRONG, floor 66.64 right): ret 1.085 |d|=0.085 place 0.789 k*89
+  PRINCIPLED  (anchor 1.0x right, floor 66.64 right): ret 0.980 |d|=0.020 place 0.802 k*86  <-- BEST
+Predicted ~1.0 / k*~89 / no overshoot; measured 0.980 / 86 / none. 4x closer to parity, placement
+recovered, MSE back to parent level. 0.980-vs-1.085 gap (0.105) >> +-0.04 noise; same-parent design
+makes attribution clean. CALIBRATION STORY CLOSED: anchor = target, floor = constraint, temperature
+= reach; all three blind-estimable from Re=500/1000; set all three right and the system lands on
+parity. The old flagship's number was two miscalibrations cancelling.
