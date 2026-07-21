@@ -159,7 +159,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
-         pde_two_sided=False):
+         pde_two_sided=False, fresh_opt=False):
     import json
     import pickle
     import jax
@@ -269,10 +269,16 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     if resume:                                                # continue a checkpoint (keep TRUE base for KL)
         ck = pickle.load(open(resume, "rb"))
         start_iter = ck["iter"] + 1
+        # fresh_opt: resume PARAMS but discard the checkpoint's Adam state. Needed when the
+        # operating point shifts (e.g. temperature anneal): stale second moments adapted to the
+        # old gradient landscape drove the anneal@1.5 collapse (probe 0.24->0.12 in 30 iters).
+        _opt_state = None if fresh_opt else ck["opt_state"]
+        if fresh_opt:
+            print("    FRESH OPTIMIZER: params resumed, Adam state discarded", flush=True)
         trainer = DDPOTrainer(ddpm, ck["params"], reward, optimizer, group_size=group_size,
                               t_start=t_start, clip_eps=clip_eps, kl_coef=kl, n_inner=n_inner,
                               seed=(seed if seed is not None else start_iter),
-                              sampling_temp=temp, base_params=base_orig, opt_state=ck["opt_state"],
+                              sampling_temp=temp, base_params=base_orig, opt_state=_opt_state,
                               sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
                               chain_starts=chain_starts, ddim_stride=ddim_stride)
         print(f"RESUMED from {resume} at iter {start_iter}", flush=True)
@@ -440,6 +446,9 @@ if __name__ == "__main__":
                     help="OPTIONAL EMA over policy weights, applied once per outer iteration "
                          "(e.g. 0.99 ~ 100-iter horizon). 0 = off (default). Checkpoints then carry "
                          "ema_params+ema_rate under named keys; eval can compare shadow vs online.")
+    ap.add_argument("--fresh_opt", action="store_true",
+                    help="on --resume: keep params but discard the checkpoint's Adam state "
+                         "(for operating-point shifts like a temperature anneal).")
     ap.add_argument("--pde_two_sided", action="store_true",
                     help="use the TWO-SIDED pde log-ratio (ln R^2 - ln floor)^2 instead of the "
                          "one-sided hinge: actively pushes residual UP toward the floor when the "
