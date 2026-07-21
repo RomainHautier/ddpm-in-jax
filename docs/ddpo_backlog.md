@@ -542,3 +542,23 @@ REDESIGN (running): TWO-PHASE ANNEAL. Hot phase (temp 3.5) found spectral parity
 resumes best ckpt at temp 1.5 with --pde_two_sided, where the rollout noise floor is low enough
 for the pde term to finally see the model's own smoothness (expected c_pde ~18 vs 0.001).
 Refinement, not search. Then Re=2000 floorfix (re-queued; old waiter was stuck on a dead marker).
+
+**BLIND-PROXY STUDY: GT-free stats CANNOT rank structure fidelity (2026-07-22).** Tested four
+GT-free instruments (ensemble agreement K=4, temporal coherence, input-gradient align, |ln R^2/floor|)
+against GT placement across 3-model spreads at Re=2000 AND Re=10000, plus a planted noise impostor.
+RESULT, replicated in both regimes: agree & tempo ANTI-correlate with placement (finetuning makes
+added structure more input-deterministic -> consistently WRONG; self-consistency measures conviction,
+not correctness). align tracks but with 0.001-0.003 dynamic range (no sensitivity). rfloor catches
+crude noise at Re=2000 (6.32 vs 1.2) but at Re=10000 PREFERS the impostor (1.87) over real models
+(~4.85): noise pushes residual up toward a high blind floor and looks "more physical" than genuinely
+structured-but-smooth outputs. CAVEATS: 3-model spreads, single seed, crude impostor (temporally
+coherent by construction bug — tempo untested vs impostor; noise scale 7-14x too strong).
+CONSEQUENCE: OOD quality claims rest ENTIRELY on frozen-recipe validation from truth-available
+regimes; per-instance blind QA = gross-noise rejection at best, unreliable at high floors. The
+placement-requires-GT objection (user, 2026-07-21) is now an empirical result, demonstrated twice.
+ALSO Re=2000 FLOORFIX RESULT: probe 0.56->0.62, deep ret 0.908->1.085 (k* 83->89, resid 2.68->2.73
+toward GT 3.16, place 0.808->0.789). Mechanism confirmed (old floor suppressed fine structure) but
+OVERSHOOT: with the constraint released the model converges to its actual target = gen12 anchor at
+1.2x GT -> deployed 1.09. The over-low floor was an ACCIDENTAL REGULARIZER cancelling the
+over-generous anchor. TESTABLE NEXT: corrected floor + ACCURATE obsfit anchor (not gen12) should
+land ~1.0 with the k*=89 shape gain and no overshoot.
