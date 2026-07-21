@@ -573,3 +573,13 @@ recovered, MSE back to parent level. 0.980-vs-1.085 gap (0.105) >> +-0.04 noise;
 makes attribution clean. CALIBRATION STORY CLOSED: anchor = target, floor = constraint, temperature
 = reach; all three blind-estimable from Re=500/1000; set all three right and the system lands on
 parity. The old flagship's number was two miscalibrations cancelling.
+
+**LOW-k LOSS + SPECTRAL PATCHWORK (2026-07-22, user's idea, works).** The finetuned cascade loses
+large-scale energy (k=1 at 0.855 of GT vs recon's 0.996; crossover at k~5, DDPO better above).
+Cause: energy reward weight 0.1 and k=1 is one shell of 95 in the spec log-distance — a 15% k=1
+loss is nearly free to the reward. FIX = GT-free POST-PROCESSING, no retraining: Fourier hybrid
+X = ifft[fft(recon)*(k<kc) + fft(ddpo)*(k>=kc)], smooth 2-shell crossover. At kc=8: low-k [1,5)
+0.955->0.989 (recon level), ret/place/k* UNCHANGED (0.959/0.791/86), MSE 0.0363->0.0342 (-6%;
+kc=16 -> 0.0325). Principle: use each source where the information lives — large scales are
+input-determined (recon is anchored), fine scales are synthesized (DDPO). Caveat: hybrid residual
+rises 17->28 (seam cost; still below GT ~76). Retires the boost-energy-weight retraining option.
