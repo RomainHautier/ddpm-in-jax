@@ -130,7 +130,7 @@ B2. Calibrations (existing frozen artifacts, unchanged):
     (accurate obs-fit anchor ~1.0x tail, GT-free; residual_ref = 66.64 blind Re-scaling — now known
     to lie within the floor's own sampling spread [46,76]).
 B3. Temperature by R3.1 (corrected buckets), D computed BEFORE training on the B1 train-pool
-    LR inputs, recorded below at launch time.
+    LR inputs. RECORDED AT LAUNCH (2026-07-23): D = 0.231 -> temp = 2.5.
 B4. Recipe: §4 with --re 2000 --stats <B2> --scales_re 1000, temp <B3>, n_outer 600,
     save_every 50, seed 0, fresh from the EMA base. RE_CFG(2000) repointed to the 40-seed file
     and the B1 split for this run.
