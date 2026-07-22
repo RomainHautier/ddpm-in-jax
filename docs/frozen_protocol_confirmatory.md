@@ -180,3 +180,6 @@ B8. ATTEMPT #2 TERMS (v1.3-compliant; runs only on user approval):
       still never opened. Seqs 5-7 remain sealed spare. Same primary/secondary bars as B6.
     - Attempt #1's result stands and is reported alongside; attempt #2 is a test of the v1.3
       corrective, not a replacement of the record.
+    - RECORDED AT LAUNCH (2026-07-22): R3.1 vs the v2 anchor D = 0.293 -> temp = 2.5 (same bucket
+      as attempt #1; consistency: 0.231 x 1.261/0.997 = 0.292). Pre-flight ratio 1.000 OK.
+      Training: 600 iters, seed 0, fresh EMA base -> monitoring/ddpo_re2000_frozen_confirmatory2_ckpts.
