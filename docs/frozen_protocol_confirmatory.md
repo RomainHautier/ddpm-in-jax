@@ -1,4 +1,8 @@
-# FROZEN CONFIRMATORY PROTOCOL — v1.0 (2026-07-23)
+# FROZEN CONFIRMATORY PROTOCOL — v1.1 (2026-07-23)
+
+CHANGELOG v1.1: R3.1 temperature buckets corrected (v1.0 derived them from GT-relative deficits;
+recomputed against the BLIND anchor-relative deficit they misassigned in-dist and Re=10000).
+Appendix A added: frozen Re=1000 in-dist baseline. No confirmatory data opened under either version.
 
 Purpose: one blind, non-adaptive run that converts the campaign's adaptively-developed numbers
 into validated ones. Everything below is FROZEN before execution. Any deviation, rerun, or
@@ -33,8 +37,11 @@ post-hoc adjustment voids the confirmation and must be reported as such.
 - R3.1 TRAINING TEMPERATURE from the blind deficit:
     D = E_deployed_base[32,96) / E_anchor[32,96), where E_deployed_base is the spectrum of the
     base model's deep-cascade output on TRAINING-pool inputs (GT-free).
-    Rule (piecewise, from the three calibration regimes):  D > 0.60 -> temp 2.0;
-    0.15 < D <= 0.60 -> temp 2.5;  D <= 0.15 -> temp 3.5.
+    Rule (piecewise; CORRECTED v1.1 — v1.0's buckets were derived from GT-relative deficits and
+    misassigned two of the three calibration regimes when D is computed blind):
+        D >= 0.35        -> temp 2.0    (calibration: in-dist D=0.40, optimum <=2.0)
+        0.20 <= D < 0.35 -> temp 2.5    (calibration: Re=2000  D=0.25-0.30, optimum 2.5)
+        D < 0.20         -> temp 3.5    (calibration: Re=10000 D=0.156, temp 2.5 plateaued, 3.5 broke it)
 - R3.2 CHECKPOINT SELECTION (blind stopping): train n_outer = 600, save every 50. Select the
     checkpoint minimizing |E_deployed[10,96)/E_anchor[10,96) - 1|, deployed spectra computed on
     TRAINING-pool inputs. KNOWN LIMITATION, accepted a priori: the anchor grades ~1.18x GT, so
@@ -77,3 +84,29 @@ post-hoc adjustment voids the confirmation and must be reported as such.
 3. Train once. No probe-based interventions permitted (probe recorded, not acted on).
 4. Select checkpoint by R3.2. Record the selection computation.
 5. Eval per §5. Publish numbers unedited, with this document's version stamped.
+
+
+## Appendix A — Frozen Re=1000 IN-DIST BASELINE (v1.1)
+
+The baseline finetune, runnable before any extrapolation. In-dist, so the anchor and floor are
+MEASURED (blindness constraints apply only to OOD targets); the decision rules are still frozen.
+
+A1. Data split (FIXES the historical probe/test overlap):
+    train_seqs = [32, 33]   |   probe_seq = 34  (moved OUT of the test set; monitoring only)
+    val = 34, 35            |   TEST = 36, 37, 38, 39  (probe no longer overlaps: fully reportable)
+    Base DDPM trained on seqs 0-31; all of 32-39 unseen by it.
+A2. Calibrations:
+    anchor = base_results/regime_stats_re1000.npz (measured in-dist statistics)
+    residual_ref = 17.455 (calibration-json value; err-high doctrine). DOCUMENTED DISCREPANCY:
+    the proper-triplet measurement gives 10.218 — unreconciled with the json at this regime
+    (matches at Re=500, differs at 1000/2000). 17.455 is the LENIENT (safe) side for a one-sided
+    hinge and is what every campaign in-dist run used; frozen for continuity.
+A3. Temperature by R3.1 (corrected): D = 0.472/1.194 = 0.40 -> temp 2.0.
+    (Independently consistent with the GT-informed finding: temps <=2.0 preserve k*=95.)
+A4. Recipe: identical to §4 with --re 1000, no --stats/--scales_re overrides, temp 2.0,
+    n_outer 600, save_every 50, seed 0, fresh run from the EMA base.
+A5. Selection & eval: R3.2 checkpoint rule (deployed-vs-anchor on training-pool inputs);
+    deep eval per §5 with val "34,35", test "36,37,38,39"; inference temp 0.30 and 1.0 reported;
+    patchwork per R3.3.
+A6. A-priori expectations: ret in [0.85, 1.15]; k* >= 90; placement >= 0.85. Anything outside
+    is reported as-is.
