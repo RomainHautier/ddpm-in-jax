@@ -583,3 +583,13 @@ X = ifft[fft(recon)*(k<kc) + fft(ddpo)*(k>=kc)], smooth 2-shell crossover. At kc
 kc=16 -> 0.0325). Principle: use each source where the information lives — large scales are
 input-determined (recon is anchored), fine scales are synthesized (DDPO). Caveat: hybrid residual
 rises 17->28 (seam cost; still below GT ~76). Retires the boost-energy-weight retraining option.
+
+**FLOOR "DISCREPANCY" RECONCILED (2026-07-23): pure sampling variance, no methodological bug.**
+Reproducing the calibration notebook's exact seq/frame selection (stat_seqs[:4], t0=100:292:24)
+through the session's pipeline yields the json values to the digit (Re=2000: 45.99). The json vs
+re-measurement gaps (17.46-vs-10.22 at 1000, 45.99-vs-75.87 at 2000, agreement at 500) are the
+heavy-tailed floor's sequence-subset variance, growing with Re, ~+-50% at Re>=1000. IMPLICATIONS:
+(1) never precision-tune the floor below ~50%; measure on all available seqs and round up.
+(2) REVISED CLAIM: the blind Re-scaling floor 66.64 is INSIDE the Re=2000 floor's sampling spread
+[46,76] — previously reported as "1.45x over"; it is actually indistinguishable from a direct
+measurement, a STRONGER validation of the Re-scaling method than claimed.
