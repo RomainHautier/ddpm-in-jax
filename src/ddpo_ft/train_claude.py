@@ -49,7 +49,9 @@ RE_CFG = {
     1000: dict(gt="flow-data/kf_2d_re1000_256_40seed.npy", stats="base_results/regime_stats_re1000.npz",
                train_seqs=[32, 33], probe_seq=36),
     # Frozen confirmatory split (protocol Appendix B): NEW 40-seed file (all-virgin realizations);
-    # train 0-3 (LR only), probe 4 record-only, TEST 24-39 sealed, spare 5-23 sealed.
+    # train 0-3 (LR only), probe 4 record-only. Attempt #1 TEST 24-39 (opened+burned 2026-07-23);
+    # attempt #2 TEST 8-23 sealed, spare 5-7. v1.3 anchor: regime_stats_re2000_obsfit_v2.npz
+    # (rebuilt from THIS file's train-pool LR, fingerprinted; pass via --stats per Appendix B8).
     2000: dict(gt="flow-data/kf_re2000_256_40seed.npy",   stats="base_results/regime_stats_re2000.npz",
                train_seqs=[0, 1, 2, 3], probe_seq=4),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
@@ -187,6 +189,18 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     stats_path = stats or cfg["stats"]                     # override -> extrapolated anchor (no target data)
     print(f"=== REGIME Re={re} | gt={cfg['gt']} train_seqs={cfg['train_seqs']} probe_seq={cfg['probe_seq']} "
           f"-> {save_dir} ===", flush=True)
+    # Protocol v1.3 §2b pre-flight: an obs-fit anchor must match the LR of the data generation it
+    # will train against; a fingerprint-less obs-fit anchor or a drifted one aborts the launch.
+    import numpy as _np
+    _stats_d = _np.load(stats_path)
+    if "obs_lr_fingerprint" in _stats_d:
+        from anchor_obsfit_builder import verify_freshness
+        if not verify_freshness(stats_path, cfg["gt"], cfg["train_seqs"]):
+            raise SystemExit(f"ABORT (v1.3 pre-flight): {stats_path} is stale for {cfg['gt']} — "
+                             f"rebuild via src/ddpo_ft/anchor_obsfit_builder.py from the training LR")
+    elif "obsfit" in stats_path:
+        raise SystemExit(f"ABORT (v1.3 pre-flight): obs-fit anchor {stats_path} has no LR fingerprint "
+                         f"(pre-v1.3 artifact) — rebuild via src/ddpo_ft/anchor_obsfit_builder.py")
     if stats:
         print(f"    ANCHOR OVERRIDE: stats={stats_path}  scales_re={scales_re or re}  "
               f"({'EXTRAPOLATED' if 'extrap' in stats_path else 'custom'} anchor — no target-regime data)", flush=True)

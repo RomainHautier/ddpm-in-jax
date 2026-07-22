@@ -614,3 +614,24 @@ TWO LESSONS, both protocol-level:
 Also real and positive: the machinery generalized (blind temp/selection/k_c all fired correctly;
 k* 30->95; placement +0.05 over base on virgin data; hybrid restored lowk 0.983 and moved residual
 toward GT). What failed is one number, for a reason now measured and fixable blind.
+
+## 2026-07-23 (later) — v1.3: freeze PROCEDURES, not artifacts (post-mortem corrective, VALIDATED)
+- Root cause of the Appendix-B primary fail (ret 1.454): B2 froze the obs-fit anchor as an
+  ARTIFACT built from OLD-generation LR. New generation's tail is 1.66x weaker; the stale anchor
+  grades 1.261x vs the new GT in E[32,96) — training drove deployed output to parity with the
+  wrong spectrum. The user's directive: when the dataset changes and LR inputs exist, anchors are
+  recomputed from them.
+- Corrective implemented AND validated (report-only, on the already-burned test seqs 24-39):
+  - `src/ddpo_ft/anchor_obsfit_builder.py`: the frozen construction PROCEDURE, parameterized by
+    (data file, Re, LR seqs). Rebuilt from NEW train-pool LR (seqs 0-3): anchor/GT E[32,96) =
+    0.997 vs stale 1.261 — procedure-rebuild alone closes the entire staleness gap. kd fit 48.7
+    vs prior 48.3; residual_ref 66.63 by the unchanged law.
+  - Anchor npz now stores an OBS FINGERPRINT (LR band spectrum + source path/seqs).
+    `verify_freshness()` = GT-free pre-flight: fingerprint vs training-LR band ratio in k[10,30),
+    tol 5%. Old/new LR ratio 1.117 would have been caught BEFORE training. No fingerprint = stale.
+  - `train_claude.py` runs the pre-flight at launch and ABORTS on stale/fingerprint-less obs-fit
+    anchors (tested: stale aborts, v2 passes at ratio 1.000).
+  - Protocol v1.3: §2b (binding rule + pre-flight), B7 (outcome record), B8 (attempt #2 terms:
+    v2 anchor, sealed seqs 8-23 as fresh test, 5-7 spare; attempt #1 stands in the record).
+- Attempt #2 and the Re=10000 confirmatory (§1-7, unaffected — reference-only anchor, file CRC
+  unchanged) both await user go.

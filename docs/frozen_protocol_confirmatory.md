@@ -1,8 +1,16 @@
-# FROZEN CONFIRMATORY PROTOCOL — v1.1 (2026-07-23)
+# FROZEN CONFIRMATORY PROTOCOL — v1.3 (2026-07-23)
 
 CHANGELOG v1.1: R3.1 temperature buckets corrected (v1.0 derived them from GT-relative deficits;
 recomputed against the BLIND anchor-relative deficit they misassigned in-dist and Re=10000).
 Appendix A added: frozen Re=1000 in-dist baseline. No confirmatory data opened under either version.
+CHANGELOG v1.3 (post Appendix-B failure): §2b added — FREEZE PROCEDURES, NOT ARTIFACTS, plus a
+mandatory GT-free anchor-freshness pre-flight. Root cause of the Appendix-B primary failure
+(ret 1.454 vs [0.80,1.20]): B2 froze the obs-fit anchor as an ARTIFACT built from the OLD data
+generation's LR; the new generation's tail is 1.66x weaker, so training optimized toward a target
+1.26x hotter (in E[32,96)) than the deployment regime's true spectrum. Rebuilding the anchor with
+the SAME frozen procedure from the NEW file's train-pool LR grades 0.997x vs the new GT
+(report-only diagnostic on the already-opened test seqs) — the procedure was correct; pinning its
+output was the error.
 
 Purpose: one blind, non-adaptive run that converts the campaign's adaptively-developed numbers
 into validated ones. Everything below is FROZEN before execution. Any deviation, rerun, or
@@ -32,6 +40,21 @@ post-hoc adjustment voids the confirmation and must be reported as such.
   for the one-sided hinge).
 - NOTE: the pde hinge remains ONE-SIDED (the two-sided variant is unvalidated at hot rollouts —
   noise-saturated; see backlog 2026-07-21).
+
+## 2b. FREEZE PROCEDURES, NOT ARTIFACTS (v1.3 — binding for all future runs)
+- Any reward artifact that depends on TARGET-REGIME OBSERVATIONS (the obs-fit spectral anchor)
+  is frozen as a CONSTRUCTION PROCEDURE, not as a file. Before every training run it MUST be
+  rebuilt from the LR observations of the exact data generation being trained on, using
+  `src/ddpo_ft/anchor_obsfit_builder.py` (the validated recipe, parameterized; nothing else about
+  the recipe may change). Artifacts that depend only on REFERENCE regimes (Re=500/1000 spectrum
+  fits, transfer function, LOO correction, the floor Re-scaling law b=2.705) remain frozen files.
+- MANDATORY GT-FREE PRE-FLIGHT before any training launch: `verify_freshness(anchor, data, seqs)`
+  compares the anchor's stored LR observation fingerprint against the band spectrum (k in [10,30))
+  of the training LR about to be used. |ratio - 1| > 0.05 -> STALE: abort and rebuild. An anchor
+  npz without a fingerprint is stale by definition. (The Appendix-B failure would have been caught
+  here: old-LR/new-LR band ratio = 1.117, measurable before training, no GT needed.)
+- Data-file identity (CRC/hash) of every input file is recorded at launch; a changed identity
+  triggers the pre-flight even if the path is unchanged.
 
 ## 3. Frozen blind decision rules (previously made with GT; now fixed a priori)
 - R3.1 TRAINING TEMPERATURE from the blind deficit:
@@ -139,3 +162,21 @@ B5. Selection R3.2 (deployed-vs-anchor on train-pool inputs); eval per §5 on TE
 B6. A-priori expectations: PRIMARY ret(0.30) in [0.80, 1.20] (adaptive campaign: 0.980;
     training-seed noise +-0.04); SECONDARY k* >= 80, hybrid low-k [1,5) >= 0.97; placement
     reported as-is. One attempt; no reruns.
+
+B7. OUTCOME (2026-07-23, seqs 24-39 opened once, graded as-is): PRIMARY FAILED —
+    ret(0.30) = 1.454. Secondaries: k* = 95 PASS; hybrid low-k 0.983 PASS; placement 0.721 vs
+    base 0.673 (above base for the first time). All blind rules (R3.1 D=0.231->temp 2.5, R3.2
+    ckpt iter0599, R3.3 kc=5) executed correctly. Root cause: B2's frozen anchor ARTIFACT was
+    built from OLD-generation LR; the reward drove deployed output to parity with a spectrum
+    1.26x hotter than the new generation's GT in E[32,96). See §2b (v1.3) for the corrective.
+
+B8. ATTEMPT #2 TERMS (v1.3-compliant; runs only on user approval):
+    - Anchor: `base_results/regime_stats_re2000_obsfit_v2.npz` — rebuilt by the frozen §2b
+      procedure from NEW-file train-pool LR (seqs 0-3; already-opened data, no new unsealing).
+      Fingerprint stored; pre-flight ratio vs training LR = 1.000 OK. Report-only diagnostic
+      against the burned test seqs 24-39: anchor/GT E[32,96) = 0.997 (old artifact: 1.261).
+      residual_ref = 66.63 (unchanged law). Floor, recipe, R3.1-R3.4, itemps: all unchanged.
+    - TEST = a fixed subset of the SEALED SPARE, seqs 8-23 (16 seqs x 6 frames = 96 frames),
+      still never opened. Seqs 5-7 remain sealed spare. Same primary/secondary bars as B6.
+    - Attempt #1's result stands and is reported alongside; attempt #2 is a test of the v1.3
+      corrective, not a replacement of the record.
