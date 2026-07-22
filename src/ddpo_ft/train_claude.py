@@ -48,11 +48,12 @@ GT_PATH = "flow-data/kf_2d_re1000_256_40seed.npy"
 RE_CFG = {
     1000: dict(gt="flow-data/kf_2d_re1000_256_40seed.npy", stats="base_results/regime_stats_re1000.npz",
                train_seqs=[32, 33], probe_seq=36),
-    # Frozen confirmatory split (protocol Appendix B): NEW 40-seed file (all-virgin realizations);
-    # train 0-3 (LR only), probe 4 record-only. Attempt #1 TEST 24-39 (opened+burned 2026-07-23);
-    # attempt #2 TEST 8-23 sealed, spare 5-7. v1.3 anchor: regime_stats_re2000_obsfit_v2.npz
-    # (rebuilt from THIS file's train-pool LR, fingerprinted; pass via --stats per Appendix B8).
-    2000: dict(gt="flow-data/kf_re2000_256_40seed.npy",   stats="base_results/regime_stats_re2000.npz",
+    # Frozen confirmatory split (protocol Appendix B): 40-seed file, train 0-3 (LR only), probe 4
+    # record-only. Attempt #1 TEST 24-39 burned; attempt #2 TEST 8-23 burned; spare 5-7 sealed.
+    # dt32 file = stride-80 subsample (frames 39/119/199/279) of the fine-dt generation — restores
+    # the base model's dt=1/32 frame spacing (raw file lag-1 corr 0.99999 vs required ~0.986).
+    # v1.3/v1.4 anchor: regime_stats_re2000_obsfit_v3.npz (rebuilt from THIS file, fingerprinted).
+    2000: dict(gt="flow-data/kf_re2000_256_40seed_dt32.npy", stats="base_results/regime_stats_re2000.npz",
                train_seqs=[0, 1, 2, 3], probe_seq=4),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
                train_seqs=[8, 9, 10, 11], probe_seq=0),

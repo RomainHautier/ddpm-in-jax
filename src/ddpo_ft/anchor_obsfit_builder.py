@@ -23,10 +23,14 @@ _KRC = np.round(np.sqrt(_kc[:,None]**2+_kc[None,:]**2)).astype(int).ravel()
 REFS = {500:'flow-data/kf_re500_256_20seed.npy', 1000:'flow-data/kf_2d_re1000_256_40seed.npy'}
 KOBS = np.arange(6, 31)
 
+def _frames(T, fstride):
+    # full-length sequences: skip the 40-frame transient window; short (already-strided) files: all frames
+    return range(0, T) if T < 40 else range(40, min(312, T), fstride)
+
 def fine_spec(path, seqs, fstride=8):
     a = np.load(path, mmap_mode='r'); S = []
     for s in seqs:
-        for t in range(40, min(312, a.shape[1]), fstride):
+        for t in _frames(a.shape[1], fstride):
             f = np.asarray(a[s,t], np.float32)/SIG
             S.append(np.bincount(_KR, (np.abs(np.fft.fft2(f))**2).ravel(), minlength=N)[:KMAX])
     return np.asarray(S).mean(0)
@@ -34,7 +38,7 @@ def fine_spec(path, seqs, fstride=8):
 def coarse_spec(path, seqs, fstride=8):
     a = np.load(path, mmap_mode='r'); S = []
     for s in seqs:
-        for t in range(40, min(312, a.shape[1]), fstride):
+        for t in _frames(a.shape[1], fstride):
             fl = (np.asarray(a[s,t], np.float32)/SIG)[::4, ::4]
             S.append(np.bincount(_KRC, (np.abs(np.fft.fft2(fl))**2).ravel(), minlength=NC)[:33])
     return np.asarray(S).mean(0)
@@ -118,3 +122,21 @@ def verify_freshness(anchor_path, target_path, target_seqs, tol=0.05):
 if __name__ == '__main__':
     tgt, re_t, seqs, out = sys.argv[1], int(sys.argv[2]), [int(x) for x in sys.argv[3].split(',')], sys.argv[4]
     build(tgt, re_t, seqs, out)
+
+REF_LAG1 = (0.95, 0.9985)   # lag-1 frame corr of dt=1/32 generations: re1000 base 0.9907, old re2000 0.9864
+def temporal_compat_check(path, seqs):
+    """v1.4 pre-flight (GT-free, uses LR-resolution reads only): is the file's frame spacing
+    compatible with the base model's training dt? The 2026-07 40-seed generation is ~80x finer
+    (lag-1 corr 0.99999 vs 0.986-0.991) -> triplets are near-static, conditioning off-distribution,
+    and dt-based residuals are in the wrong convention."""
+    a = np.load(path, mmap_mode='r'); cs = []
+    t0 = min(100, a.shape[1] - 2)
+    for s in seqs[:4]:
+        x = np.asarray(a[s,t0], np.float32)[::4,::4].ravel()
+        y = np.asarray(a[s,t0+1], np.float32)[::4,::4].ravel()
+        cs.append(float(np.corrcoef(x, y)[0,1]))
+    c = float(np.mean(cs))
+    ok = REF_LAG1[0] <= c <= REF_LAG1[1]
+    print(f"PRE-FLIGHT (temporal): LR lag-1 corr = {c:.5f} -> "
+          f"{'OK (dt-compatible)' if ok else 'INCOMPATIBLE frame spacing (fine-dt generation?)'}")
+    return ok

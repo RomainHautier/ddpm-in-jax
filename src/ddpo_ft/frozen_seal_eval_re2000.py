@@ -17,7 +17,7 @@ from src.physics_guidance import make_dx_func
 from src.sequence_inference import build_triplets, grid_downsample_degrade, load_sequence
 from eval_ddpo import eff_resolution
 MEAN,SIG,N,HIK0=0.0,4.7988,256,32
-GT_PATH='flow-data/kf_re2000_256_40seed.npy'
+GT_PATH=os.environ.get('SEAL_GT','flow-data/kf_re2000_256_40seed.npy')
 # Attempt #1 defaults; attempt #2 (Appendix B8) overrides via env: SEAL_ANCHOR (v2, fingerprinted),
 # SEAL_CKDIR, SEAL_TEST (e.g. "8:24" -> seqs 8-23).
 ANCHOR=os.environ.get('SEAL_ANCHOR','base_results/regime_stats_re2000_obsfit_floorfix.npz')
@@ -70,7 +70,7 @@ for k in range(2,17):
 print(f"R3.3 crossover: k_c={kc}",flush=True)
 # ---------- 3. SEALED GRADING (test seqs opened here) ----------
 print(f"\n=== OPENING SEALED TEST SET (seqs {_t0}-{_t1-1}, {6*len(TEST_SEQS)} frames) ===",flush=True)
-xg,xl=pool(TEST_SEQS,6)
+xg,xl=pool(TEST_SEQS,int(os.environ.get('SEAL_NPER','6')))
 xdd=batched(lambda xb,kk: ddim20(base_params,_sa*xb+_s1*jax.random.normal(jax.random.fold_in(kk,1),xb.shape)),xl,500)
 E_gt=np.asarray(spec_fn(jnp.asarray(xg))).mean(0)
 Ehg=local_hik_energy(xg[...,1]*SIG,HIK0,6.0)

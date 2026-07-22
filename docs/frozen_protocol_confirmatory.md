@@ -183,3 +183,33 @@ B8. ATTEMPT #2 TERMS (v1.3-compliant; runs only on user approval):
     - RECORDED AT LAUNCH (2026-07-22): R3.1 vs the v2 anchor D = 0.293 -> temp = 2.5 (same bucket
       as attempt #1; consistency: 0.231 x 1.261/0.997 = 0.292). Pre-flight ratio 1.000 OK.
       Training: 600 iters, seed 0, fresh EMA base -> monitoring/ddpo_re2000_frozen_confirmatory2_ckpts.
+    - OUTCOME (2026-07-22, sealed seqs 8-23 opened once): PRIMARY FAILED — ret(0.30) = 1.380
+      (itemp 1.0: 1.283). Secondaries: k* = 95 PASS, hybrid low-k 0.983 PASS; placement 0.713 vs
+      base 0.637. v2 anchor improved ret 1.454 -> 1.380 and R3.2 now approaches the anchor from
+      below (selected iter0449, ratio 0.870), but the bar was still missed. See B9 root cause.
+
+B9. DATA-GENERATION TEMPORAL INCOMPATIBILITY (discovered post-B8; affects BOTH attempts):
+    - The 2026-07 40-seed files (Re=500/2000/10000) are saved at ~80x finer frame spacing than the
+      old generation and the Re=1000 base-training data: lag-1 frame corr 0.99999 vs required
+      0.986-0.991; lag 80 of the new file matches lag 1 of the old. One 280-frame sequence spans
+      ~3.5 old-convention frames (corr 0.89 end-to-end).
+    - Consequences: (a) triplets are near-static -> conditioning off-distribution vs the base
+      model in both attempts; (b) all dt=1/32-based residuals are in the wrong convention (the
+      "GT residual 625" vs floor 66.6 is a dt artifact, not physics); (c) effective sample sizes
+      collapse (96 test frames ~ 16 independent states). Per-frame SPATIAL metrics (ret, k*,
+      placement, spectra, anchors) remain validly measured.
+    - RETRACTION: the earlier claim that the Re=10000 confirmatory (§1-7) was unaffected is
+      withdrawn — kf_re10000_256_40seed.npy is the same fine-dt generation.
+    - v1.4 PRE-FLIGHT (GT-free, run at launch): temporal_compat_check() in
+      src/ddpo_ft/anchor_obsfit_builder.py — LR lag-1 corr must lie in [0.95, 0.9985].
+    - CORRECTIVE (user-directed): stride-80 subsample. kf_re2000_256_40seed_dt32.npy = frames
+      {39,119,199,279} of every sequence (offset 39 keeps the skip-transients convention);
+      lag-1 corr 0.9871 -> dt-compatible. Anchor v3 rebuilt from the dt32 train-pool LR by the
+      frozen §2b procedure (fit identical to v2; fingerprint matches the dt32 file). Pre-flights:
+      freshness 1.000 OK, temporal 0.9864 OK.
+    - RELAUNCH RECORDED (2026-07-22): D = 0.330 vs v3 anchor on dt-correct conditioning -> temp
+      2.5 (R3.1). Base probe hik_ret 0.394 on dt32 vs 0.337 on the raw file — dt-correct
+      conditioning alone helps the base. Training: frozen recipe, 600 iters, seed 0, train pool =
+      8 triplets -> monitoring/ddpo_re2000_dt32_ckpts. Post-training eval is REPORT-ONLY on the
+      burned seqs 24-39 (32 frames, SEAL_NPER=2) — NOT a sealed confirmatory; only seqs 5-7 of
+      the Re=2000 file remain sealed.

@@ -635,3 +635,20 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
     v2 anchor, sealed seqs 8-23 as fresh test, 5-7 spare; attempt #1 stands in the record).
 - Attempt #2 and the Re=10000 confirmatory (§1-7, unaffected — reference-only anchor, file CRC
   unchanged) both await user go.
+
+## 2026-07-22 — attempt #2 verdict; fine-dt data generation discovered; dt32 corrective relaunch
+- ATTEMPT #2 (sealed 8-23): PRIMARY FAIL ret(0.30)=1.380 (itemp1.0: 1.283); k*=95 PASS, hybrid
+  lowk 0.983 PASS, placement 0.713 > base 0.637. v2 anchor closed part of the gap (1.454->1.380),
+  R3.2 approached the anchor from below (iter0449, 0.870).
+- ROOT CAUSE (bigger than the anchor): the whole 2026-07 40-seed generation (Re=500/2000/10000)
+  is saved ~80x finer in time (lag-1 corr 0.99999 vs 0.986-0.991; lag-80 == old lag-1; one seq
+  spans ~3.5 old frames). Conditioning near-static in BOTH attempts; dt-based residuals in wrong
+  convention (GT "625" = artifact); test sets ~16 independent states. Spatial metrics stand.
+  RETRACTED: "Re=10000 protocol unaffected".
+- v1.4 temporal pre-flight: temporal_compat_check() (LR lag-1 corr in [0.95,0.9985]) — flags all
+  three new files GT-free. Trainer-side hard abort was offered and declined; check runs at launch
+  via the driver instead.
+- CORRECTIVE (user-directed): kf_re2000_256_40seed_dt32.npy = stride-80 frames {39,119,199,279}
+  (lag-1 0.9871). Anchor v3 = frozen procedure on dt32 train LR (fit == v2, fingerprinted).
+  D=0.330 -> temp 2.5. Base probe 0.394 on dt32 vs 0.337 raw. 600 iters running ->
+  ddpo_re2000_dt32_ckpts; then REPORT-ONLY eval on burned 24-39 (5-7 stay sealed).
