@@ -593,3 +593,24 @@ heavy-tailed floor's sequence-subset variance, growing with Re, ~+-50% at Re>=10
 (2) REVISED CLAIM: the blind Re-scaling floor 66.64 is INSIDE the Re=2000 floor's sampling spread
 [46,76] — previously reported as "1.45x over"; it is actually indistinguishable from a direct
 measurement, a STRONGER validation of the Re-scaling method than claimed.
+
+**FROZEN Re=2000 CONFIRMATORY — SEALED VERDICT (2026-07-23): PRIMARY BAR FAILED, and the failure
+is the protocol working.** Single sanctioned run per Appendix B (blind D=0.231->temp 2.5, R3.2
+selected iter0599, R3.3 k_c=5 — both blind rules fired sensibly). Sealed test (virgin seqs 24-39):
+  base:              ret 0.369  place 0.673  k*30
+  DDPO  itemp 0.30:  ret 1.454  place 0.721  k*95   <- PRIMARY FAIL (bar [0.80,1.20])
+  hybrid itemp 0.30: ret 1.454  lowk 0.983  MSE 0.0434  resid 42.8 (GT 99.1)  k*95
+Secondary bars PASSED (k*>=80; hybrid lowk>=0.97); placement ABOVE base (0.721 vs 0.673) — a first.
+ROOT CAUSE (post-grading diagnosis): the NEW data generation has a 1.66x weaker hi-k tail than the
+old 20-seed file; the frozen anchor (built from OLD-generation LR) grades 1.56x above the NEW GT.
+The pipeline did its job perfectly — drove deployed output to anchor parity — against a stale
+target. Anchor/old-GT = 0.94 (fine); anchor/new-GT = 1.56 (stale).
+TWO LESSONS, both protocol-level:
+(1) FREEZE PROCEDURES, NOT ARTIFACTS: any artifact that depends on target observations (the
+    obs-fit anchor) must be REBUILT from the deployment data at hand, not pinned from an earlier
+    data generation.
+(2) A GT-FREE PRE-FLIGHT EXISTS AND WOULD HAVE CAUGHT IT: LR spectra old-vs-new differ by 1.12x
+    in the observable band k[10,30) — a drift check on the observations alone, before any training.
+Also real and positive: the machinery generalized (blind temp/selection/k_c all fired correctly;
+k* 30->95; placement +0.05 over base on virgin data; hybrid restored lowk 0.983 and moved residual
+toward GT). What failed is one number, for a reason now measured and fixable blind.
