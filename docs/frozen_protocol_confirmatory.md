@@ -114,3 +114,28 @@ A5. Selection & eval: R3.2 checkpoint rule (deployed-vs-anchor on training-pool 
     patchwork per R3.3.
 A6. A-priori expectations: ret in [0.85, 1.15]; k* >= 90; placement >= 0.85. Anything outside
     is reported as-is.
+
+## Appendix B — Frozen Re=2000 CONFIRMATORY on the new 40-seed data (v1.2, 2026-07-23)
+
+New data: flow-data/kf_re2000_256_40seed.npy (40 seqs x 320). VERIFIED before writing this
+appendix: numerically unrelated to the old 20-seed file (corr ~ 0 at matched indices; new seq 0
+matches no old sequence) — every sequence is VIRGIN w.r.t. the entire campaign.
+
+B1. Split (fixed a priori):
+    train_seqs = [0,1,2,3] (LR observations only enter training) | probe_seq = 4 (record-only)
+    TEST = seqs 24-39 (16 seqs, 6 frames/seq = 96 frames), grid-4x. SEALED until the single eval.
+    SEALED SPARE = seqs 5-23: untouched, reserved for future seed-repeat confirmatories.
+B2. Calibrations (existing frozen artifacts, unchanged):
+    anchor+floor = base_results/regime_stats_re2000_obsfit_floorfix.npz
+    (accurate obs-fit anchor ~1.0x tail, GT-free; residual_ref = 66.64 blind Re-scaling — now known
+    to lie within the floor's own sampling spread [46,76]).
+B3. Temperature by R3.1 (corrected buckets), D computed BEFORE training on the B1 train-pool
+    LR inputs, recorded below at launch time.
+B4. Recipe: §4 with --re 2000 --stats <B2> --scales_re 1000, temp <B3>, n_outer 600,
+    save_every 50, seed 0, fresh from the EMA base. RE_CFG(2000) repointed to the 40-seed file
+    and the B1 split for this run.
+B5. Selection R3.2 (deployed-vs-anchor on train-pool inputs); eval per §5 on TEST 24-39 at
+    inference temps 1.0 and 0.30 (R3.4 headline); patchwork per R3.3.
+B6. A-priori expectations: PRIMARY ret(0.30) in [0.80, 1.20] (adaptive campaign: 0.980;
+    training-seed noise +-0.04); SECONDARY k* >= 80, hybrid low-k [1,5) >= 0.97; placement
+    reported as-is. One attempt; no reruns.

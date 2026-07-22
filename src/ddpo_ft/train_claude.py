@@ -48,8 +48,10 @@ GT_PATH = "flow-data/kf_2d_re1000_256_40seed.npy"
 RE_CFG = {
     1000: dict(gt="flow-data/kf_2d_re1000_256_40seed.npy", stats="base_results/regime_stats_re1000.npz",
                train_seqs=[32, 33], probe_seq=36),
-    2000: dict(gt="flow-data/kf_re2000_256_20seed.npy",   stats="base_results/regime_stats_re2000.npz",
-               train_seqs=[8, 9, 10, 11], probe_seq=0),
+    # Frozen confirmatory split (protocol Appendix B): NEW 40-seed file (all-virgin realizations);
+    # train 0-3 (LR only), probe 4 record-only, TEST 24-39 sealed, spare 5-23 sealed.
+    2000: dict(gt="flow-data/kf_re2000_256_40seed.npy",   stats="base_results/regime_stats_re2000.npz",
+               train_seqs=[0, 1, 2, 3], probe_seq=4),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
                train_seqs=[8, 9, 10, 11], probe_seq=0),
     # Re=10000: CLEAN disjoint split. NOTE the Re=2000/500 entries above train on [8,9,10,11] while
