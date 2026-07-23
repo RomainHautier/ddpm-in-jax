@@ -652,3 +652,13 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   (lag-1 0.9871). Anchor v3 = frozen procedure on dt32 train LR (fit == v2, fingerprinted).
   D=0.330 -> temp 2.5. Base probe 0.394 on dt32 vs 0.337 raw. 600 iters running ->
   ddpo_re2000_dt32_ckpts; then REPORT-ONLY eval on burned 24-39 (5-7 stay sealed).
+
+## 2026-07-23 — dt32 Re=2000 CLEARS THE BAR; Re=10000 dt32 launched (gate passed)
+- Re=2000 dt32 report-only eval: ret(0.30)=1.166 IN-BAR (first bar-clearing result on the new
+  generation), k*=95, hybrid lowk 0.988, placement 0.750 > base 0.698, GT residual 53.3 back
+  inside [46,76]. Probe 0.394->0.762. The failure chain is closed: stale anchor (v1.3) + wrong
+  dt (B9/dt32) were the whole story; the frozen recipe itself generalizes GT-free.
+- Re=10000: file re-staged from GCS (CRC IvvIXQ== verified), dt32 strided (lag-1 0.9757 OK),
+  obs-fit anchor built (kd 113.6 ~ prior 112.7; residual_ref 5180), D=0.163 -> temp 3.5,
+  600 iters running -> ddpo_re10000_dt32_ckpts; report-only eval on 10-19; 25-39 SEALED.
+- Seal-eval script now parameterized: SEAL_GT/ANCHOR/CKDIR/TEST/NPER/RE/TRAIN.

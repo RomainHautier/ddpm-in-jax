@@ -26,8 +26,9 @@ _t0,_t1=(int(v) for v in os.environ.get('SEAL_TEST','24:40').split(':'))
 TEST_SEQS=list(range(_t0,_t1))
 print(f"SEAL CONFIG: anchor={ANCHOR} ckdir={CKDIR} test={_t0}-{_t1-1}",flush=True)
 ddpm,base_params,_=build_base_ddpm(); ab=ddpm.alpha_bar
-dx=make_dx_func(n=N,re=2000.0,std=SIG,mean=MEAN); spec_fn=make_spectrum_fn(N)
-resid_fn=jax.jit(make_residual_loss(n=N,re=2000.0,std=SIG,mean=0.0))
+_RE=float(os.environ.get('SEAL_RE','2000'))
+dx=make_dx_func(n=N,re=_RE,std=SIG,mean=MEAN); spec_fn=make_spectrum_fn(N)
+resid_fn=jax.jit(make_residual_loss(n=N,re=_RE,std=SIG,mean=0.0))
 ddim20=build_ddim_denoiser(ddpm.unet,ab,100,20)
 _sa,_s1=float(jnp.sqrt(ab[100])),float(jnp.sqrt(1.0-ab[100]))
 sat,s1t=float(jnp.sqrt(ab[150])),float(jnp.sqrt(1.0-ab[150]))
@@ -45,7 +46,8 @@ def pool(seqs,n_per):
     return np.concatenate(xg),np.concatenate(xl)
 
 # ---------- 1. R3.2 selection (train pool, GT-free: GT array loaded but only LR used here) ----------
-_,xl_tr=pool([0,1,2,3],6)
+_TRAIN=[int(v) for v in os.environ.get('SEAL_TRAIN','0,1,2,3').split(',')]
+_,xl_tr=pool(_TRAIN,6)
 xdd_tr=batched(lambda xb,kk: ddim20(base_params,_sa*xb+_s1*jax.random.normal(jax.random.fold_in(kk,1),xb.shape)),xl_tr,500)
 deep=make_kchain_ddim_sampler(ddpm.unet,ab,[150,100,50],86,dx,3.0)
 print("R3.2 checkpoint selection (deployed[10,96)/anchor[10,96) on train pool):",flush=True)

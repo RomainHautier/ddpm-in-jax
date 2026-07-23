@@ -62,7 +62,10 @@ RE_CFG = {
     # noise, because DDPO uses the pool as a state distribution rather than fitting targets — but
     # it is still a leak). Re=10000 avoids it entirely: train 20-23, probe 24, eval val 0-9 /
     # test 10-19, all disjoint. 40 sequences available.
-    10000: dict(gt="flow-data/kf_re10000_256_40seed.npy",
+    # dt32 = stride-80 subsample (frames 39/119/199/279; raw file is the fine-dt generation, B9).
+    # Anchor: regime_stats_re10000_obsfit_dt32.npz (frozen §2b procedure on THIS file's train LR).
+    # Report-only eval on seqs 10-19; confirmatory seqs 25-39 REMAIN SEALED.
+    10000: dict(gt="flow-data/kf_re10000_256_40seed_dt32.npy",
                 stats="base_results/regime_stats_re10000_blind.npz",
                 train_seqs=[20, 21, 22, 23], probe_seq=24),
 }

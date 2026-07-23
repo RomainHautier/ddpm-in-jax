@@ -1,4 +1,4 @@
-# FROZEN CONFIRMATORY PROTOCOL — v1.3 (2026-07-23)
+# FROZEN CONFIRMATORY PROTOCOL — v1.4 (2026-07-23)
 
 CHANGELOG v1.1: R3.1 temperature buckets corrected (v1.0 derived them from GT-relative deficits;
 recomputed against the BLIND anchor-relative deficit they misassigned in-dist and Re=10000).
@@ -11,6 +11,9 @@ generation's LR; the new generation's tail is 1.66x weaker, so training optimize
 the SAME frozen procedure from the NEW file's train-pool LR grades 0.997x vs the new GT
 (report-only diagnostic on the already-opened test seqs) — the procedure was correct; pinning its
 output was the error.
+CHANGELOG v1.4 (post B9): temporal-compatibility pre-flight added (LR lag-1 corr in [0.95,0.9985];
+the 2026-07 40-seed generation is ~80x finer in time and fails it); dt32 stride-80 derivative
+files defined; Appendix C records the dt32 gate result and the Re=10000 dt32 launch.
 
 Purpose: one blind, non-adaptive run that converts the campaign's adaptively-developed numbers
 into validated ones. Everything below is FROZEN before execution. Any deviation, rerun, or
@@ -213,3 +216,27 @@ B9. DATA-GENERATION TEMPORAL INCOMPATIBILITY (discovered post-B8; affects BOTH a
       8 triplets -> monitoring/ddpo_re2000_dt32_ckpts. Post-training eval is REPORT-ONLY on the
       burned seqs 24-39 (32 frames, SEAL_NPER=2) — NOT a sealed confirmatory; only seqs 5-7 of
       the Re=2000 file remain sealed.
+
+## Appendix C — dt32 REPORT-ONLY runs (2026-07-23; gate + Re=10000 extension)
+C1. Re=2000 dt32 RESULT (report-only, burned seqs 24-39, 32 frames, SEAL_NPER=2):
+    GT residual 53.3 — INSIDE the calibrated floor spread [46,76]; dt convention restored.
+    base ret 0.380 / place 0.698 / k*31. DDPO itemp0.30: ret 1.166 (B6 primary bar MET),
+    k*=95, place 0.750; hybrid kc=7 lowk 0.988 (bar MET). itemp1.0: ret 1.101.
+    R3.2 selected iter0599 (ratio 0.850, whole trajectory below anchor); R3.3 kc=7.
+    D=0.330 -> temp 2.5. Probe 0.394 -> 0.762. NOT a sealed confirmatory (data previously
+    opened); it validates the dt32 + procedure-rebuilt-anchor stack end to end.
+C2. GATE (user-directed 2026-07-23): C1 met the B6 bar -> extend the identical pipeline to
+    Re=10000.
+C3. Re=10000 dt32 LAUNCH RECORD (2026-07-23):
+    - File: kf_re10000_256_40seed_dt32.npy (stride-80 frames {39,119,199,279} of the CRC-verified
+      raw file IvvIXQ==); temporal pre-flight 0.9757 OK (on the Re-trend: 1000:0.991,
+      2000:0.987, 10000:0.976).
+    - Anchor: regime_stats_re10000_obsfit_dt32.npz — frozen §2b procedure on train-pool LR
+      (seqs 20-23). kd fit 113.6 vs blind prior 112.7 (extrapolation law confirmed by target
+      obs); residual_ref 5180 (law; old blind npz had 5183). Freshness 1.000 OK. vs the old
+      blind-extrap anchor: [10,32) x1.263 (obs-band correction), [32,96) within ~6%.
+    - R3.1: D = 0.163 -> temp 3.5 (deepest-deficit bucket). Recipe otherwise frozen: 600 iters,
+      seed 0, lr 5e-5, K2 S=[100,75] ddim50 eta1, EMA base -> monitoring/ddpo_re10000_dt32_ckpts.
+    - Eval: REPORT-ONLY on seqs 10-19 (historical non-sealed split; SEAL_RE=10000,
+      SEAL_TRAIN=20-23, SEAL_NPER=2). CONFIRMATORY SEQS 25-39 REMAIN SEALED for a future
+      one-shot §1-7 under this dt32 stack.
