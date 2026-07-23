@@ -706,3 +706,9 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
 - Both dt32 models, decorrelated picks: ret drifts +0.01 from 0.30 -> 0.0, all else flat. R3.4=0.30
   is on the greedy plateau. Bonus: Re=10000 temp-3.5 model on the cleanest picks {0,5,10,15} =
   1.073 — best Re=10000 number, in-band with margin.
+
+## 2026-07-23 — one-shot Stage 1 (anchor-only) PASSED; Stage-2 config frozen
+- Escalation fired (0.610<0.70 -> 3.5); R3.2 iter0549 (0.789); R3.3' kc=6; deployment vs anchor:
+  plateau 0.798, low-k parity 0.998, [32,64) 1.146, tail 0.223 (anchor's extrapolated region,
+  safe side); residual 36.3 << blind floor. NO GT touched; sealed 25-39 closed. Stage 2 = single
+  sealed grading, frozen config, awaits explicit user go.

@@ -346,3 +346,15 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
 - Stage-1 machinery: src/ddpo_ft/oneshot_stage1_re10000.py (escalation record, R3.2 blind
   selection, R3.3' reward-selected k_c, anchor-relative band assessment at itemp 0.30, all on
   train-pool inputs).
+- STAGE 1 EXECUTED (2026-07-23, log monitoring/ab_pdelocal/oneshot_stage1.log):
+    Escalation: temp-2.5 plateau 0.610 < 0.70 -> ESCALATED to 3.5 (rule fired as designed).
+    R3.2 selected iter0549 (plateau 0.789, approach-from-below, no overshoot).
+    R3.3' reward-selected k_c = 6 (supersedes crossing kc=2 per §8.8a adoption).
+    Deployment vs anchor at itemp 0.30: plateau [10,96) = 0.798; bands [1,5) 0.998 (parity),
+    [10,32) 0.760, [32,64) 1.146, [64,96) 0.223 (the far tail is the anchor's model-extrapolated
+    region — deployed staying far below it is the expected safe side). PDE residual 36.3, below
+    the blind floor (hinge inactive). No GT quantity computed; sealed 25-39 untouched.
+- STAGE-2 CONFIG FROZEN (zero remaining degrees of freedom): model ddpo_re10000_dt32_ckpts/
+    ddpo_re1000_iter0549.pkl, deep cascade [150,100,50] 86 steps lam3, itemp 0.30 (1.0 reference),
+    hybrid tanh crossover k_c=6, TEST = sealed seqs 25-39 (primary, as frozen in §1) with a
+    27-39 clean-subset line reported alongside (C5), bars per §6. Executes on user go only.
