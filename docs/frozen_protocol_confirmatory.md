@@ -297,3 +297,12 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
 8.6 NEXT DATA DROP SPEC (for regeneration): truly independent seeds (distinct initial conditions,
     full spinup each), saved at dt=1/32 (or save-every-80th of the current fine step), >= 320
     frames per sequence. With that, full-length-sequence evaluation as in the original campaign.
+8.7 §8.5 OUTCOME (2026-07-23): Re=2000 decorrelated re-grade PASSED (ret 1.160, k*95, place
+    0.817>0.744 — headline bias-robust). Re=10000 RETRAIN AT LOCKED TEMP 2.5 FAILED the band:
+    ret(0.30) = 0.498, k* = 41 (probe 0.143 vs 0.234 at temp 3.5). Paired evidence on dt-correct
+    data, same recipe/seed: temp 2.5 -> 0.498 | temp 3.5 -> 1.183. The single-temp lock carries a
+    real, now-measured cost at the deepest-deficit regime. DECISION PENDING (user): (a) keep
+    single temp 2.5 and accept the Re=10000 result as-is; or (b) freeze a two-point deficit rule
+    (D >= 0.20 -> 2.5; D < 0.20 -> 3.5) with Re=2000/Re=10000 explicitly marked as SPENT
+    calibration regimes — non-circular only for FUTURE regimes and for the sealed 25-39 one-shot,
+    which remains the sole untouched validation ground either way.

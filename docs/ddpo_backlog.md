@@ -687,3 +687,9 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   re10000 picks {0,5,10,15} corr 0.218 (best available non-sealed; background 0.1).
 - Validation chain LAUNCHED: (A) re2000 decorrelated re-grade; (B) re10000 RETRAIN at temp 2.5;
   (C) re10000 decorrelated eval. Sealed 25-39 untouched. Next-data-drop spec in §8.6.
+
+## 2026-07-23 — v1.5 validation verdict: single temp 2.5 fails at Re=10000 (0.498 vs 3.5's 1.183)
+- Re=2000 decorrelated re-grade: 1.160 — headline robust. Re=10000 locked-temp retrain: ret 0.498,
+  k*41 — the exploration deficit at D=0.163 is real; paired, dt-correct, same-seed evidence.
+- Decision pending (§8.7): single-temp honesty vs frozen two-point deficit rule with spent
+  calibration regimes. Sealed 25-39 remains the only untouched validation ground.
