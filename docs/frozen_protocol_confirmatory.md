@@ -331,3 +331,18 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
     10-19: sequence-sampling variance at small effective n). CONCLUSION: R3.4 = 0.30 sits on the
     greedy plateau; residual exploration noise below 0.30 contributes nothing measurable; greedy
     (0.0) is an equivalent deployment choice, not an improvement. No protocol change.
+
+## §8.10 — ONE-SHOT Re=10000: STAGED EXECUTION (user-directed, 2026-07-23)
+- §8.7 RESOLVED (user): the ESCALATION RULE is adopted — train at 2.5; blind train-pool plateau
+  < 0.70 -> escalate to 3.5 (fresh run). Re=2000 + Re=10000 are SPENT calibration regimes; the
+  sealed one-shot is the rule's out-of-sample test.
+- STAGED GRADING DIRECTIVE (user): Stage 1 = the deployment setup is assessed ONLY against the
+  extrapolated anchor — no GT quantity computed or read anywhere, sealed 25-39 stays CLOSED.
+  Stage 2 = the single sealed GT grading, executed only on the user's explicit go.
+- RUN REUSE DECLARATION: the escalation rule is applied to the two existing frozen-recipe seed-0
+  runs (ddpo_re10000_dt32_t25_ckpts, ddpo_re10000_dt32_ckpts). Both were executed fresh from the
+  EMA base with all decisions blind; a live escalation with the same seed would replicate them.
+  Their prior GT gradings on burned/non-sealed splits are part of the declared calibration spend.
+- Stage-1 machinery: src/ddpo_ft/oneshot_stage1_re10000.py (escalation record, R3.2 blind
+  selection, R3.3' reward-selected k_c, anchor-relative band assessment at itemp 0.30, all on
+  train-pool inputs).
