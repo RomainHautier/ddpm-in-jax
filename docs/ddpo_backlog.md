@@ -670,3 +670,9 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   safe direction, no training impact; needs grid correction in the fresh-repo spec.
 - Full corrected stack (dt32 + procedure-rebuilt anchors + frozen recipe) now works GT-free at
   BOTH extrapolation regimes. Sealed 25-39 still available for a one-shot confirmatory.
+
+## 2026-07-23 — 40-seed sequences are ORDERED SEGMENTS, not independent seeds
+- Adjacent-seq corr ~0.6 (matched frames), background ~0.1 by index distance 5-8; old 20-seed
+  file = 0.095 baseline. Re=2000 dt32 grading clean (d>=20); Re=10000 dt32 test 16-19 adjacent to
+  train 20-23 (max 0.64) -> clean-subset re-grade on 10-15; sealed 25-26 within corr length of
+  probe/train (noted in C5, split unchanged). Effective test n ~4-6 states per 16 seqs.

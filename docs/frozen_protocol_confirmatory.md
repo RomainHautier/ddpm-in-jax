@@ -258,3 +258,18 @@ C4. Re=10000 dt32 RESULT (2026-07-23, report-only, seqs 10-19, 20 graded frames)
     - R3.2 selected iter0549 (ratio 0.790, approach-from-below, no overshoot); R3.3 kc=2.
     - Sealed seqs 25-39 remain UNTOUCHED; a one-shot §1-7 confirmatory under the dt32 stack
       (with §2 amended per v1.3/v1.4) is still available.
+C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40 sequences of the
+    2026-07 generation are ORDERED SEGMENTS, not independent seeds — adjacent-index correlation
+    ~0.6 at matched frames, decaying to the ~0.1 same-regime background over ~5-8 indices (old
+    20-seed file: 0.095 = independent baseline). Implications, split-by-split:
+    - Re=2000 dt32 grading (train 0-3 / test 24-39): CLEAN — min index distance 20, corr ~0.05.
+    - Re=2000 attempt #2 (test 8-23): mild proximity for seqs 8-12 (d=5-12, corr 0.14-0.20);
+      leakage direction would HELP, so the FAIL verdict is conservative and stands.
+    - Re=10000 dt32 grading (train 20-23 / test 10-19): PARTIAL — test seqs 16-19 are adjacent
+      (corr up to 0.64); seqs 10-15 are at background. Clean-subset re-grade (10-15 only) run and
+      reported alongside; both numbers stand in the record.
+    - Re=10000 SEALED confirmatory set 25-39: seqs 25-26 are within the correlation length of
+      probe 24 / train 23. NOTED for the one-shot: grading may report 25-39 (as frozen) plus a
+      27-39 clean-subset line; the split itself is NOT changed post-hoc.
+    - Effective independent states per 16-seq test set: ~4-6 (correlation length ~3-4 indices),
+      not 16. All quoted margins should be read against that.
