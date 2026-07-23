@@ -273,3 +273,27 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
       27-39 clean-subset line; the split itself is NOT changed post-hoc.
     - Effective independent states per 16-seq test set: ~4-6 (correlation length ~3-4 indices),
       not 16. All quoted margins should be read against that.
+
+## §8 — v1.5 LOCKED OOD SETUP (user-directed corrections, 2026-07-23; supersedes R3.1/R3.4' notes)
+8.1 REWARD EXTRAPOLATION: unchanged — the §2b frozen procedures (obs-fit anchor from deployment
+    train-pool LR; floor by the b=2.705 law) are the ONLY target-regime inputs. Known a priori.
+8.2 TRAINING TEMPERATURE = 2.5, SINGLE VALUE FOR ALL OOD DEPLOYMENTS. The R3.1 deficit->temp
+    buckets are REMOVED from the deployment path: their calibration used GT-informed optima
+    measured ON THE TARGET REGIMES (circular for a GT-free claim), and the "3.5 beats 2.5 at
+    Re=10000" evidence came from the broken fine-dt run (near-static conditioning). 2.5 is the
+    value validated on dt-correct data at the nearest extrapolation regime. D may still be
+    COMPUTED and RECORDED at launch as a diagnostic — never acted on.
+8.3 INFERENCE TEMPERATURE = 0.30, FROZEN. itemp 1.0 is reported as the untempered reference only;
+    it is not a performance knob and is never promoted post-hoc. The R3.4' blind-rule idea is
+    dropped (user decision).
+8.4 TEST-SET INDEPENDENCE (consequence of C5): OOD eval sequences MUST be spaced >= 5 indices
+    apart AND >= 5 indices from every train/probe sequence; grade ALL available frames of each
+    chosen sequence (for dt32 files: both triplets). The cross-sequence correlation of the chosen
+    test set is measured from LR at launch (GT-free) and recorded.
+8.5 CONSEQUENCE FOR EXISTING RESULTS: Re=2000 dt32 already complies with 8.2 (temp 2.5); its
+    grading is re-run on decorrelated picks {24,29,34,39} for the record. Re=10000 dt32 was run
+    at temp 3.5 under the old rule -> RERUN at temp 2.5 required to validate the v1.5 lock;
+    report-only eval on decorrelated non-sealed picks {0,5,10,15}. Sealed 25-39 untouched.
+8.6 NEXT DATA DROP SPEC (for regeneration): truly independent seeds (distinct initial conditions,
+    full spinup each), saved at dt=1/32 (or save-every-80th of the current fine step), >= 320
+    frames per sequence. With that, full-length-sequence evaluation as in the original campaign.

@@ -676,3 +676,14 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   file = 0.095 baseline. Re=2000 dt32 grading clean (d>=20); Re=10000 dt32 test 16-19 adjacent to
   train 20-23 (max 0.64) -> clean-subset re-grade on 10-15; sealed 25-26 within corr length of
   probe/train (noted in C5, split unchanged). Effective test n ~4-6 states per 16 seqs.
+
+## 2026-07-23 — protocol v1.5 (§8): user-directed lock corrections
+- SINGLE training temp 2.5 for all OOD (R3.1 buckets removed from deployment path — their
+  calibration used GT-informed optima ON the target regimes = circular; "3.5 at Re=10000" evidence
+  came from the broken fine-dt run). D recorded as diagnostic only.
+- itemp 0.30 stays frozen headline; 1.0 = reference only; R3.4' idea dropped.
+- Test-set independence rule (§8.4): picks spaced >=5 indices, >=5 from train/probe, ALL frames
+  graded; LR cross-corr recorded at launch. Measured: re2000 picks {24,29,34,39} corr 0.102 (clean);
+  re10000 picks {0,5,10,15} corr 0.218 (best available non-sealed; background 0.1).
+- Validation chain LAUNCHED: (A) re2000 decorrelated re-grade; (B) re10000 RETRAIN at temp 2.5;
+  (C) re10000 decorrelated eval. Sealed 25-39 untouched. Next-data-drop spec in §8.6.

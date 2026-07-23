@@ -22,9 +22,12 @@ GT_PATH=os.environ.get('SEAL_GT','flow-data/kf_re2000_256_40seed.npy')
 # SEAL_CKDIR, SEAL_TEST (e.g. "8:24" -> seqs 8-23).
 ANCHOR=os.environ.get('SEAL_ANCHOR','base_results/regime_stats_re2000_obsfit_floorfix.npz')
 CKDIR=os.environ.get('SEAL_CKDIR','monitoring/ddpo_re2000_frozen_confirmatory_ckpts')
-_t0,_t1=(int(v) for v in os.environ.get('SEAL_TEST','24:40').split(':'))
-TEST_SEQS=list(range(_t0,_t1))
-print(f"SEAL CONFIG: anchor={ANCHOR} ckdir={CKDIR} test={_t0}-{_t1-1}",flush=True)
+# SEAL_TEST: "a:b" range, or comma list "0,5,10,15" for decorrelated picks (C5: seqs are ordered
+# segments, adjacent corr ~0.6 — spaced picks restore approximate independence).
+_ts=os.environ.get('SEAL_TEST','24:40')
+TEST_SEQS=([int(v) for v in _ts.split(',')] if ',' in _ts
+           else list(range(*[int(v) for v in _ts.split(':')])))
+print(f"SEAL CONFIG: anchor={ANCHOR} ckdir={CKDIR} test={TEST_SEQS}",flush=True)
 ddpm,base_params,_=build_base_ddpm(); ab=ddpm.alpha_bar
 _RE=float(os.environ.get('SEAL_RE','2000'))
 dx=make_dx_func(n=N,re=_RE,std=SIG,mean=MEAN); spec_fn=make_spectrum_fn(N)
@@ -71,7 +74,7 @@ for k in range(2,17):
     if all(E_dd[k+j]>=E_rc[k+j] for j in range(3)): kc=k; break
 print(f"R3.3 crossover: k_c={kc}",flush=True)
 # ---------- 3. SEALED GRADING (test seqs opened here) ----------
-print(f"\n=== OPENING SEALED TEST SET (seqs {_t0}-{_t1-1}, {6*len(TEST_SEQS)} frames) ===",flush=True)
+print(f"\n=== OPENING TEST SET (seqs {TEST_SEQS}) ===",flush=True)
 xg,xl=pool(TEST_SEQS,int(os.environ.get('SEAL_NPER','6')))
 xdd=batched(lambda xb,kk: ddim20(base_params,_sa*xb+_s1*jax.random.normal(jax.random.fold_in(kk,1),xb.shape)),xl,500)
 E_gt=np.asarray(spec_fn(jnp.asarray(xg))).mean(0)
