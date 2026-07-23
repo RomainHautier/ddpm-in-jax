@@ -55,7 +55,8 @@ xdd_tr=batched(lambda xb,kk: ddim20(base_params,_sa*xb+_s1*jax.random.normal(jax
 deep=make_kchain_ddim_sampler(ddpm.unet,ab,[150,100,50],86,dx,3.0)
 print("R3.2 checkpoint selection (deployed[10,96)/anchor[10,96) on train pool):",flush=True)
 best=(None,1e9)
-for ck in sorted(glob.glob(f'{CKDIR}/ddpo_re1000_iter*.pkl')):
+_fix=os.environ.get('SEAL_CKPT')
+for ck in ([_fix] if _fix else sorted(glob.glob(f'{CKDIR}/ddpo_re1000_iter*.pkl'))):
     P=pickle.load(open(ck,'rb'))['params']
     y=batched(lambda xb,kk: deep(P,sat*xb+s1t*jax.random.normal(jax.random.fold_in(kk,1),xb.shape),
                                  jax.random.fold_in(kk,2)),xdd_tr,700)
@@ -90,7 +91,7 @@ def metrics(y,nm):
     print(f"{nm:<28} ret={ret:.3f} |ret-1|={abs(ret-1):.3f} lowk={lo:.3f} MSE={mse:.4f} place={pl:.3f} resid={R:.1f} k*={eff_resolution(E,E_gt)}",flush=True)
 print(f"GT residual^2 on test: {GTres:.1f}",flush=True)
 metrics(xdd,'base recon')
-for itemp in (1.0,0.30):
+for itemp in [float(v) for v in os.environ.get('SEAL_ITEMPS','1.0,0.30').split(',')]:
     smp=make_kchain_ddim_sampler(ddpm.unet,ab,[150,100,50],86,dx,3.0,temp=itemp)
     y=batched(lambda xb,kk: smp(P,sat*xb+s1t*jax.random.normal(jax.random.fold_in(kk,1),xb.shape),
                                 jax.random.fold_in(kk,2)),xdd,700)
