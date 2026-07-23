@@ -306,3 +306,20 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
     (D >= 0.20 -> 2.5; D < 0.20 -> 3.5) with Re=2000/Re=10000 explicitly marked as SPENT
     calibration regimes — non-circular only for FUTURE regimes and for the sealed 25-39 one-shot,
     which remains the sole untouched validation ground either way.
+8.8 CLOSING THE TWO OPEN KNOBS (studies of 2026-07-23, both committed):
+    (a) R3.3' HYBRID CUTOFF — ADOPTED. k_c = argmax of the locked training reward over the hybrid
+        sweep on TRAIN-POOL outputs (GT-free). Validation: in-dist the landscape is flat (no wrong
+        pick possible; blind 5 vs GT-tiebreak 3, indistinguishable); at Re=2000 the reward has an
+        interior maximum at k_c=7 which equals the old crossing rule's pick AND attains the best
+        low-k in the GT sweep (0.988; ret flat at 1.144 across all cutoffs). R3.3 (crossing) is
+        retained as the fallback when the reward landscape is flat within noise.
+    (b) R3.1' TEMPERATURE — the in-dist derivation is CLOSED OFF (negative result): the Re=1000
+        ladder (1.5/1.75/2.0/2.5) is all-in-band on GT (0.877-1.023), so no failure exists to
+        calibrate a threshold; healthy in-dist plateaus (0.657-0.682) sit BELOW healthy OOD ones
+        (0.79-0.85), so no universal theta transfers; and plateau does not track fine quality
+        (in-dist 2.5: highest plateau 0.682, worst ret 0.877, k* 86). What SURVIVES: the blind
+        plateau is a reliable COARSE failure detector — the Re=10000 under-exploration stall reads
+        0.60 vs the same regime's achievable 0.79, flat from iter ~50. The escalation rule
+        (train 2.5; plateau < 0.70 at iter ~150 -> restart at 3.5) classifies all seven measured
+        runs correctly but its threshold is calibrated on the OOD pair -> adopting it is §8.7
+        option (b): Re=2000 + Re=10000 SPENT, sealed 25-39 the only validation ground.

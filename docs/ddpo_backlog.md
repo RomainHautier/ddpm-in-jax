@@ -693,3 +693,11 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   k*41 — the exploration deficit at D=0.163 is real; paired, dt-correct, same-seed evidence.
 - Decision pending (§8.7): single-temp honesty vs frozen two-point deficit rule with spent
   calibration regimes. Sealed 25-39 remains the only untouched validation ground.
+
+## 2026-07-23 — kc rule adopted; temp-rule in-dist derivation closed off (§8.8)
+- R3.3' reward-selected k_c VALIDATED (in-dist flat/safe; Re=2000 interior max at 7 = crossing
+  rule's pick, best lowk 0.988). Adopted with R3.3 as flat-landscape fallback.
+- In-dist ladder: plateaus 0.657/0.673/0.672/0.682 for temps 1.5/1.75/2.0/2.5, GT ret
+  0.893/0.987/1.023/0.877 — no in-dist failure to calibrate on; plateau scale regime-dependent;
+  fine plateau != fine quality. Blind plateau = coarse under-exploration detector only
+  (Re=10000: 0.60 vs achievable 0.79). Escalation rule remains §8.7(b) — OOD-calibrated.
