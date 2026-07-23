@@ -240,3 +240,21 @@ C3. Re=10000 dt32 LAUNCH RECORD (2026-07-23):
     - Eval: REPORT-ONLY on seqs 10-19 (historical non-sealed split; SEAL_RE=10000,
       SEAL_TRAIN=20-23, SEAL_NPER=2). CONFIRMATORY SEQS 25-39 REMAIN SEALED for a future
       one-shot §1-7 under this dt32 stack.
+C4. Re=10000 dt32 RESULT (2026-07-23, report-only, seqs 10-19, 20 graded frames):
+    Judged against the REGIME-APPROPRIATE a-priori bar (§6, set for Re=10000): PRIMARY
+    ret in [0.75,1.30] -> ret(0.30) = 1.183 MET (itemp1.0: 1.128). SECONDARY k* >= 55 ->
+    68/69 MET; hybrid low-k >= 0.97 -> 0.994 MET. (Against Appendix-B's Re=2000 bar of
+    k*>=80 it would miss — stated for completeness; §6 is the pre-registered bar here.)
+    - base: ret 0.242, k* 30, place 0.702. DDPO k* 30 -> 69 (effective resolution 2.3x).
+    - PLACEMENT 0.641 < base 0.702: the §6 information-ceiling prediction (placement <= base
+      at Re=10000) is CONFIRMED on this run — placement gains at Re=2000 (0.75 > 0.70) do
+      not extend to Re=10000, exactly as pre-registered.
+    - low-k 0.994-1.003: no low-k bleed at all this time (hence kc=2 and hybrid == DDPO).
+    - FLOOR LAW LIMIT: measured GT residual 399.8 vs law-extrapolated residual_ref 5180 —
+      the b=2.705 law OVER-predicts ~13x at Re=10000 (safe direction for the one-sided hinge;
+      outputs sat at ~34, below both). Likely cause: the dataset is grid-limited above k~100,
+      capping true residual growth. Flag for the fresh-repo spec: floor law needs a
+      grid-resolution correction beyond Re~2000.
+    - R3.2 selected iter0549 (ratio 0.790, approach-from-below, no overshoot); R3.3 kc=2.
+    - Sealed seqs 25-39 remain UNTOUCHED; a one-shot §1-7 confirmatory under the dt32 stack
+      (with §2 amended per v1.3/v1.4) is still available.

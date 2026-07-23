@@ -662,3 +662,11 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   obs-fit anchor built (kd 113.6 ~ prior 112.7; residual_ref 5180), D=0.163 -> temp 3.5,
   600 iters running -> ddpo_re10000_dt32_ckpts; report-only eval on 10-19; 25-39 SEALED.
 - Seal-eval script now parameterized: SEAL_GT/ANCHOR/CKDIR/TEST/NPER/RE/TRAIN.
+
+## 2026-07-23 (later) — Re=10000 dt32: all §6 regime bars MET (report-only)
+- ret(0.30)=1.183 in [0.75,1.30]; k* 30->69 (>=55 bar); hybrid lowk 0.994; placement 0.641 <
+  base 0.702 = §6 info-ceiling prediction CONFIRMED. No low-k bleed (kc=2, hybrid==DDPO).
+- Floor law over-predicts 13x at Re=10000 (5180 vs measured 400; grid-limited data likely) —
+  safe direction, no training impact; needs grid correction in the fresh-repo spec.
+- Full corrected stack (dt32 + procedure-rebuilt anchors + frozen recipe) now works GT-free at
+  BOTH extrapolation regimes. Sealed 25-39 still available for a one-shot confirmatory.
