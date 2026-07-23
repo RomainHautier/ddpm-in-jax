@@ -323,3 +323,11 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
         (train 2.5; plateau < 0.70 at iter ~150 -> restart at 3.5) classifies all seven measured
         runs correctly but its threshold is calibrated on the OOD pair -> adopting it is §8.7
         option (b): Re=2000 + Re=10000 SPENT, sealed 25-39 the only validation ground.
+8.9 GREEDY-POLICY SWEEP (2026-07-23, eval-only, both dt32 models, decorrelated picks, itemp
+    0.30/0.15/0.05/0.0 at eta=1 — the true greedy limit; eta=0 is a different sampler, known bad):
+    SATURATED in both regimes. Re=2000: ret 1.160->1.170, all other metrics flat to 3 digits.
+    Re=10000 (temp-3.5 model, picks {0,5,10,15}): ret 1.073->1.080, flat otherwise — note 1.073 at
+    itemp 0.30 is the best Re=10000 number yet, on the most independent picks (vs 1.183/1.168 on
+    10-19: sequence-sampling variance at small effective n). CONCLUSION: R3.4 = 0.30 sits on the
+    greedy plateau; residual exploration noise below 0.30 contributes nothing measurable; greedy
+    (0.0) is an equivalent deployment choice, not an improvement. No protocol change.

@@ -701,3 +701,8 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   0.893/0.987/1.023/0.877 — no in-dist failure to calibrate on; plateau scale regime-dependent;
   fine plateau != fine quality. Blind plateau = coarse under-exploration detector only
   (Re=10000: 0.60 vs achievable 0.79). Escalation rule remains §8.7(b) — OOD-calibrated.
+
+## 2026-07-23 — greedy-policy sweep (§8.9): itemp curve saturated below 0.30
+- Both dt32 models, decorrelated picks: ret drifts +0.01 from 0.30 -> 0.0, all else flat. R3.4=0.30
+  is on the greedy plateau. Bonus: Re=10000 temp-3.5 model on the cleanest picks {0,5,10,15} =
+  1.073 — best Re=10000 number, in-band with margin.
