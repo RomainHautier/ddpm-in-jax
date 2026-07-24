@@ -74,6 +74,8 @@ kc=8
 for k in range(2,17):
     if all(E_dd[k+j]>=E_rc[k+j] for j in range(3)): kc=k; break
 print(f"R3.3 crossover: k_c={kc}",flush=True)
+if os.environ.get('SEAL_KC'):                 # pre-registered k_c (R3.3' reward-selected) override
+    kc=int(os.environ['SEAL_KC']); print(f"k_c OVERRIDE (R3.3', pre-registered): k_c={kc}",flush=True)
 # ---------- 3. SEALED GRADING (test seqs opened here) ----------
 print(f"\n=== OPENING TEST SET (seqs {TEST_SEQS}) ===",flush=True)
 xg,xl=pool(TEST_SEQS,int(os.environ.get('SEAL_NPER','6')))
