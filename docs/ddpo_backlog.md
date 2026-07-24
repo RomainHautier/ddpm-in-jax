@@ -726,3 +726,10 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   stated); base 0.193->3.9x, k* 32->61/62, lowk 0.992 PASS. Placement 0.21 vs base 0.73 =
   info-ceiling CONFIRMED (much starker than burned splits). Sealed segment measurably harder.
   GT-free chain validated one-shot; escalation rule passed out-of-sample.
+
+## 2026-07-24 — placement decomposition (sealed set): hedge vs commitment
+- Base map = 18% of GT hi-k energy, input-locked shadow -> corr 0.73 (amplitude-blind metric rewards
+  the hedge). DDPO carries the same shadow (corr 0.40-0.49 vs base map at all scales) + 71% committed
+  energy at input-undetermined positions -> corr 0.21; heavy smoothing recovers only to 0.32 (coarse
+  arrangement unconstrained = true info ceiling, not jitter). Nothing destroyed: base recon exists in
+  the cascade; sample-averaging recovers hedged maps. fig_sealed_placement_decomp.png in report.
