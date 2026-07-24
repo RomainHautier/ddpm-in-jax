@@ -720,3 +720,9 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   0.683->0.789 rising; Re10000@2.5 FLAT 0.59-0.61 from iter 50 (the failure signature).
 - Provenance: R1 success criterion in-dist; R2 escalation lever anchor-only (0.612->0.789, no
   GT); R3 kc anchor-only; R4 itemp in-dist. GT-free chain complete; sealed Stage 2 = the test.
+
+## 2026-07-24 — SEALED ONE-SHOT PASSED (§8.12)
+- ret(0.30): 0.758 sealed full / 0.792 clean subset — in-band (edge margin below noise floor,
+  stated); base 0.193->3.9x, k* 32->61/62, lowk 0.992 PASS. Placement 0.21 vs base 0.73 =
+  info-ceiling CONFIRMED (much starker than burned splits). Sealed segment measurably harder.
+  GT-free chain validated one-shot; escalation rule passed out-of-sample.

@@ -367,3 +367,26 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
     is consistent with the amended rule. Full provenance audit of all deployment rules:
     docs/anchor_derived_rules.md (R1 in-dist / R2 in-dist criterion + anchor lever / R3
     anchor-only / R4 in-dist).
+
+## §8.12 — STAGE 2 EXECUTED: THE SEALED ONE-SHOT VERDICT (2026-07-24, user-authorized)
+Sealed seqs 25-39 opened ONCE (logs stage2_sealed_25_39.log / stage2_clean_27_39.log). Frozen
+config as §8.10 (iter0549, itemp 0.30 headline, k_c=6 pre-registered, escalation rule applied
+blind & out-of-sample). Graded as it fell, vs the §6 bars:
+- PRIMARY ret(0.30): full sealed set 0.758 [bar 0.75-1.30 -> IN-BAND by 0.008]; C5 clean subset
+  (27-39) 0.792 [IN-BAND by 0.042]. Both margins below the pre-registered 0.08 interpretation
+  floor -> the BAND POSITION at the edge is not interpretable; the MAGNITUDE claim §6 tests is
+  unambiguous: base 0.193/0.201 (predicted ~0.18) -> DDPO 3.9x, k* 32 -> 61/62.
+- SECONDARY: hybrid lowk 0.992/0.993 PASS; k* 61/62 >= 55 PASS.
+- PLACEMENT: 0.211/0.209 vs base 0.727/0.766 -> the §6 info-ceiling prediction CONFIRMED, and far
+  more starkly than burned splits suggested (0.64 there): on virgin states the fine-structure
+  placement is essentially uncorrelated. The prediction called the direction; the sealed set
+  revealed the size.
+- The sealed segment is HARDER than every previously seen split (GT residual 1400/1187 vs
+  400-500; base ret 0.193 vs 0.23-0.24) — consistent with ret 0.76-0.79 vs ~1.07 on burned picks
+  (regime-segment difficulty + sequence-sampling variance at effective n ~3-5).
+- The clean subset grades HIGHER than the full set: the near-train seqs 25-26 depressed rather
+  than inflated the result — no leakage story.
+VERDICT: the one-shot PASSES all §6 criteria as pre-registered. The GT-free chain — obs-fit
+anchor, escalation temperature (blind, out-of-sample), R3.2 selection, R3.3' cutoff, frozen
+itemp — is validated end-to-end on never-touched data, with the placement information ceiling
+confirmed as the honest limit of the method.
