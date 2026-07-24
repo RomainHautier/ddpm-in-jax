@@ -358,3 +358,12 @@ C5. SEQUENCE NON-INDEPENDENCE (discovered 2026-07-23 during report prep): the 40
     ddpo_re1000_iter0549.pkl, deep cascade [150,100,50] 86 steps lam3, itemp 0.30 (1.0 reference),
     hybrid tanh crossover k_c=6, TEST = sealed seqs 25-39 (primary, as frozen in §1) with a
     27-39 clean-subset line reported alongside (C5), bars per §6. Executes on user go only.
+8.11 ESCALATION TIMING CORRECTED + RULE PROVENANCE AUDIT (2026-07-24): full plateau trajectories
+    measured for the in-dist ladder (monitoring/indist_plateau_traj.json) show the healthy @1.5
+    run sits at 0.61-0.65 until iter ~260 — an iter-150 escalation check WOULD MISFIRE in-dist.
+    The rule is amended: R1 success = END-OF-RUN plateau >= theta = 0.65 (in-dist-derived: min
+    healthy end-of-run 0.657); grey zone [0.62,0.66] resolved by the stall test (failed run flat
+    from iter ~50; all healthy runs still rising). Stage-1's escalation record (end-of-run 0.610)
+    is consistent with the amended rule. Full provenance audit of all deployment rules:
+    docs/anchor_derived_rules.md (R1 in-dist / R2 in-dist criterion + anchor lever / R3
+    anchor-only / R4 in-dist).

@@ -712,3 +712,11 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   plateau 0.798, low-k parity 0.998, [32,64) 1.146, tail 0.223 (anchor's extrapolated region,
   safe side); residual 36.3 << blind floor. NO GT touched; sealed 25-39 closed. Stage 2 = single
   sealed grading, frozen config, awaits explicit user go.
+
+## 2026-07-24 — plateau trajectories + rule provenance audit (docs/anchor_derived_rules.md)
+- In-dist trajectories computed (4 temps): healthy end-of-run 0.657-0.680; @1.5 crosses 0.65 only
+  at iter ~260 -> iter-150 escalation checks misfire; rule amended to END-OF-RUN theta=0.65
+  (in-dist-derived) + stall test (§8.11). OOD: Re2000 0.746->0.850 rising; Re10000@3.5
+  0.683->0.789 rising; Re10000@2.5 FLAT 0.59-0.61 from iter 50 (the failure signature).
+- Provenance: R1 success criterion in-dist; R2 escalation lever anchor-only (0.612->0.789, no
+  GT); R3 kc anchor-only; R4 itemp in-dist. GT-free chain complete; sealed Stage 2 = the test.
