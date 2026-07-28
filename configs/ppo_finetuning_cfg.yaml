@@ -1,7 +1,16 @@
 # Forward sampling parameters
 denoise: "DDPM" # Need to make the code robust to allow changes to DDIM
-T: 100
-M: 8
+T: 5
+M: 4
 lr: 1.0e-5
+n_epochs: 1
 n_opt_steps: 4
+input_path: "flow-data/kf_2d_re1000_256_40seed.npy"
+downsampling_factor: 4
+mean: 0.0
+std: 4.7988
+shuffle_seed: 0
+train_idx: [32, 33]
+batch_size: 4
+re: 1000
 

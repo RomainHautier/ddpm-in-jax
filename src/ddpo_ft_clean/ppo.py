@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jax.scipy import stats
 import distrax
 import optax
+import numpy as np
 
 ## 1. Sampling denoising trajectories to then use as offline dataset: done
 ## 2. Function to calculate the advantage - done
@@ -69,6 +70,11 @@ class PPO():
 
         # Initialising the timesteps at which to denoise (currently only supports DDPM)
         self.t_vec = jnp.arange(self.T, 0, -1)
+
+        # checking that denoising starts at the correct timestep
+        assert self.T == self.t_vec[0], f"start t {self.t_vec[0]} vs self.T {self.T}"
+        assert self.t_vec[-1] == 1, f"t_vec[-1] = {self.t_vec[-1]}"
+        assert self.T < len(self.alpha_bar)
 
         # M samples to denoised per low-res input.
         self.M = ppo_config['M']
@@ -260,12 +266,23 @@ class PPO():
             - Returns the updated parameters, reward components & loss value. 
         """
 
+        # 1.bis. To implement - perform a few DDIM steps on the low res inputs - jitted function and return B, H, W, C
+        # partly denoised input to use downstream.
+
         # 1. Noise the low-res input
         xT = self.ddpm.forward_process(x_LR, self.T, noise_key)
 
         # 2. Rollout trajectories
         x0, x_in, x_out, log_prob, is_last, advantage, comps = self.sample_trajectories(params, xT, batched_step_keys)
         
+        B, H, W, C = xT.shape
+
+        assert x0.shape == (B, self.M, H, W, C)
+        assert x_in.shape == (B, self.M, self.T, H, W, C)
+        assert advantage.shape == (B, self.M)
+        assert (is_last.sum(-1) == 1).all()
+        assert np.isclose(advantage[0].mean(), 0, atol = 0.1) and np.isclose(advantage[0].std(), 1, atol = 0.1) 
+
         mask = 1 - is_last # invert the mask so that all but the last denoising step gradients are passed.
 
         # 3. for n_inner steps do:
@@ -277,5 +294,6 @@ class PPO():
         #       - apply the updates to the current parameters.
         for _ in range(n_inner):
             loss_values, params, opt_state = self.update_params_step(params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1)
+
 
         return loss_values, params, opt_state, comps

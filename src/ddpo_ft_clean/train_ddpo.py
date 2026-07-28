@@ -15,14 +15,19 @@ os.chdir(_ROOT)
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import yaml
 import optax
 import distrax
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+import grain.python as grain
+import functools
 
 from ppo import PPO
 from src.models.model import DDPM
 from src.ddpo_ft.rewards_claude import Reward
+from utils import LR_input_source, BuildTripletsFlatMap
+from src.sequence_inference import grid_downsample_degrade
 
 # Initialise a DDPM class, init the model and load the params to pass to the PPO class.
 
@@ -93,19 +98,43 @@ def main():
     key, init_key = jax.random.split(key)
 
     
+    ppo_epochs = ppo_config["n_epochs"]
     n_inner = ppo_config['n_opt_steps']
-    opt_state = self.optimizer.init(params)
+    opt_state = ppo.optimizer.init(params)
 
 
     ### --- Defining multi-chip sharding
-    B = 16
-    xB = jax.random.uniform(shape=(B, im_size, im_size, channels))
+
+    input_path = ppo_config["input_path"]
+    train_idx = ppo_config["train_idx"]
+    input_source = LR_input_source(input_path, train_idx)
+    input_shape = input_source._getshape()
+    B = ppo_config["batch_size"]
+    
+    mean = ppo_config['mean']
+    std = ppo_config['std']
+    shuffle_seed = ppo_config["shuffle_seed"]
+    factor = ppo_config["downsampling_factor"]
+
+
+    LR_ds = (
+        grain.MapDataset.source(input_source)
+        .map(functools.partial(grid_downsample_degrade, factor=factor))
+        .apply([BuildTripletsFlatMap(mean=mean, std=std, max_fan_out=input_shape[1]-2)])
+    )
+
+    H, W, C = 256, 256, 3
+
+    assert LR_ds[0].shape == (H, W, C), f"{LR_ds[0].shape} does not match " 
 
     # collect the devices available
     devices = np.array(jax.devices())
+
     # create a mesh over these devices to call them, and call that axis "data" as we'll split along the
     # batch axis of xB
     mesh = Mesh(devices, axis_names=("data",))
+
+    assert B % mesh.size == 0, f"B={B} not divisible by {mesh.size} devices"
 
     # define how to shard the data on the devices. Data is sharded across devices through the data axis while
     # parameters are replicated across all devices
@@ -115,22 +144,30 @@ def main():
     # put on device all the things which require to be sharded, params and opt state are the same across devices.
     params = jax.device_put(params, params_sharding)
     opt_state = jax.device_put(opt_state, params_sharding)
-    xB = jax.device_put(xB, data_sharding) # --> (B, H, W, C) split across chips.
-
-
-    # let xB  = x_LR
+    
+    rng = np.random.default_rng(shuffle_seed)
+    
+    init_params = params
 
     for _ in range(ppo_epochs):
-        key, noise_key, step_key = jax.random.split(key)
+        
+        # drawing random batch index from the built dataset.
+        idx = rng.choice(len(LR_ds), size=B, replace=False)
+        x_LR = np.stack([LR_ds[int(i)] for i in idx])
+        
+        # Assertions for pre-training checks
+        assert x_LR.shape == (B, H, W, C), "x_LR not the correct size of Batch"
+        assert np.isfinite(x_LR).all(), "some entries not finite"
+        assert 0.3 < x_LR.std() < 3, f"too large std {x_LR.std()} on input, check normalisation"
+
+        x_LR = jax.device_put(x_LR, data_sharding) # --> (B, H, W, C) split across chips.
+        key, noise_key, step_key = jax.random.split(key, 3)
         batch_step_keys = jax.device_put(jax.random.split(step_key, B), data_sharding)
         loss_values, params, opt_state, comps = ppo.train_step(x_LR, params, opt_state, n_inner, noise_key, batch_step_keys)
 
-    ### -- TO DO:
-    # wrap the train step in a full training loop over batches.
-    # look into sharding the script across multiple chips: the train step itself is not fully sharded, since we 
-    # need to shard the step up until the gradient calculations before accumulating the gradients and then applying the full update.
-    # 
-
+        # check if the params are correctly updating
+        delta = optax.global_norm(jax.tree.map(lambda a, b: a-b, params, init_params))
+        assert delta > 0, "parameters not properly updating"
 
 if __name__ == "__main__":
     main()
