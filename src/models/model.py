@@ -281,11 +281,14 @@ class DDPM:
             self.unet = Unet(**model_kwargs)
             print(f'Type of the model constructed with no cond {type(self.unet)}')
 
-    def forward_process(self, ims, t, eps):
+    @functools.partial(jax.jit, static_argnums=(0,))
+    def forward_process(self, ims, t, noise_key):
+        
+        eps = jax.random.normal(noise_key, ims.shape)
         alpha = self.alpha_bar
         return (
-            jnp.sqrt(alpha[t])[:, None, None, None] * ims
-            + jnp.sqrt(1 - alpha[t])[:, None, None, None] * eps
+            jnp.sqrt(alpha[t])[..., None, None, None] * ims
+            + jnp.sqrt(1 - alpha[t])[..., None, None, None] * eps
         )
 
 

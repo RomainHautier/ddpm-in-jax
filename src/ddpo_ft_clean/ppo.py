@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 from jax.scipy import stats
 import distrax
+import optax
 
 ## 1. Sampling denoising trajectories to then use as offline dataset: done
 ## 2. Function to calculate the advantage - done
@@ -17,13 +18,6 @@ import distrax
 ## 4. Optimizer steps - to do
 ## 5. training loop - to do
 ## 6. initialisation of the class with - to do
-
-
-def compute_rewards(x0):
-    """PLACEHOLDER reward so the sampling path runs end to end: -mean(x0^2) (pulls toward
-    small-amplitude fields — meaningless physically). Swap in the real spectral/PDE reward
-    (anchor-based, see src/ddpo_ft/rewards_claude.py) before any actual finetuning."""
-    return -jnp.mean(x0 ** 2)
 
 
 class PPO():
@@ -62,15 +56,28 @@ class PPO():
         have a fully inbuilt training step which then performs multiple epochs
     """
 
-    def __init__(self, ppo_config: dict, ddpm, params):
+    def __init__(self, ppo_config: dict, ddpm, params, reward_fn):
 
+        # Initialising the model architecture & the noise schedule. 
+        self.ddpm = ddpm
         self.model = ddpm.unet
         self.alpha_bar = ddpm.alpha_bar
         self.beta_schedule = ddpm.beta_schedule
 
-        # Initialise the start t of the denoising chain.
+        # T denoising steps
         self.T = ppo_config['T']
+
+        # Initialising the timesteps at which to denoise (currently only supports DDPM)
+        self.t_vec = jnp.arange(self.T, 0, -1)
+
+        # M samples to denoised per low-res input.
         self.M = ppo_config['M']
+
+        # Add the reward function as a class attribute.
+        self.reward_fn = reward_fn
+
+        # Init the optimizer
+        self.optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(learning_rate = ppo_config['lr']))
 
         ## PPO optimizes the following objective
         ## sum_0^T ( p_theta(x_t-1|x_t) / p_theta_old(x_t-1|x_t) * delta log p_theta(x_t-1|x_t) * r(x_0, c) )
@@ -80,14 +87,14 @@ class PPO():
         ## with both p_theta_old and r(x_0, c) constants.
 
     @functools.partial(jax.jit, static_argnums=(0,))
-    def sample_trajectories(self, params, xT, chain_key):
+    def sample_trajectories(self, params, xT, chain_keys):
         """This function samples full denoising chains on a batch of low resolution
         input using the current policy parameters.
 
         Args:
             - xT (jnp.array): (B, H, W, C) low-resolution sample to denoise
             - params (dict): model parameters
-            - chain_key (1,): key to split along the batch and then time dimension for stochastic denoising.
+            - chain_key (B, key): per batch key.
 
         Returns:
             - x0 (jnp.array): (B, M, H, W, C)
@@ -95,11 +102,6 @@ class PPO():
             - x_out (jnp.array): (B, M, T, H, W, C) denoised sample x_{t-1} sampled from p(x_{t-1}|x_t)
             - log_probs (jnp.array): (B, M, T) log-probabilities of the sample under the current posterior distribution.
         """
-
-        # Initialising the timesteps at which to denoise (currently only supports DDPM)
-        t_vec = jnp.arange(self.T)[::-1] ## if ddpm only!
-        # Splitting the noise key per batch.
-        per_batch_keys = jax.random.split(chain_key, xT.shape[0])
 
 
         def group_denoising_chain(xT_single, params, per_group_key):
@@ -127,7 +129,7 @@ class PPO():
                     (x_in, xt_out, log_prob) (Tuple(jnp.array))): ((T,H,W,C), (T,H,W,C), (T,)) monitoring variables
                 """
 
-                chain_keys = jax.random.split(per_m_key, t_vec.shape[0])
+                chain_keys = jax.random.split(per_m_key, self.t_vec.shape[0])
 
                 def denoising_step_fn(xt, step_args):
                     """This function performs a single denoising step given
@@ -158,7 +160,7 @@ class PPO():
 
 
                     # 3. Sampling a gaussian centered around the mean & get log probs of sample
-                    is_last = (t == 0)
+                    is_last = (t == 1)
 
                     # 3.a. First sample from the gaussian, std = 0 if t = 0 because last step is deterministic in DDPM
                     sample_std = jnp.where(is_last, 0.0, jnp.sqrt(self.beta_schedule[t]))
@@ -172,36 +174,33 @@ class PPO():
 
                     return xt_bwd, (xt, xt_bwd, log_prob, is_last)
 
-                x0, (x_in, x_out, log_prob, is_last) = jax.lax.scan(denoising_step_fn, xT, (t_vec, chain_keys))
+                x0, (x_in, x_out, log_prob, is_last) = jax.lax.scan(denoising_step_fn, xT, (self.t_vec, chain_keys))
 
                 return x0, x_in, x_out, log_prob, is_last
 
             x0, x_in, x_out, log_prob, is_last = jax.vmap(denoising_chain, (0, None, 0))(xT_M, params, per_m_keys)
 
 
-            def compute_advantage(rewards):
-                return rewards - jnp.mean(rewards)
+            def compute_advantage(rewards, eps = 1e-5):
+                return (rewards - jnp.mean(rewards)) / (jnp.std(rewards) + 1e-5)
 
-            rewards = jax.vmap(compute_rewards)(x0) # (M,)
+            rewards, comps = self.reward_fn(x0) # (M,)
             advantage = jax.lax.stop_gradient(compute_advantage(rewards))
 
-            return x0, x_in, x_out, log_prob, is_last, advantage
+            return x0, x_in, x_out, log_prob, is_last, advantage, comps
 
-        return jax.vmap(group_denoising_chain, (0, None, 0))(xT, params, per_batch_keys)
+        return jax.vmap(group_denoising_chain, (0, None, 0))(xT, params, chain_keys)
 
 
-
-    # This function computes the log prob ratio for a single timesteps
-
-    def compute_ratio_step(self, model, params, x_in, log_prob_old, x_out, t_vec):
+    def compute_ratio_step(self, params, x_in, log_prob_old, x_out):
         
         B, M, T = x_in.shape[:-3]
         H, W, C = x_in.shape[-3:]
         xt = jnp.reshape(x_in, (B*M*T, H, W, C))
         xt_bwd = jnp.reshape(x_out, (B*M*T, H, W, C))
-        tt = jnp.broadcast_to(t_vec, (B, M, T)).reshape(B*M*T)
+        tt = jnp.broadcast_to(self.t_vec, (B, M, T)).reshape(B*M*T)
 
-        eps_pred = model.apply({"params": params}, xt, tt, train=False)
+        eps_pred = self.model.apply({"params": params}, xt, tt, train=False)
 
         alpha_bar_t = self.alpha_bar[tt]
         alpha_t = 1 - self.beta_schedule[tt]
@@ -210,7 +209,7 @@ class PPO():
         mean = (1 / jnp.sqrt(alpha_t))[:, None, None, None] * (
             xt - alpha_coef * eps_pred)
 
-        is_last = (tt == 0)
+        is_last = (tt == 1)
         safe_std = jnp.where(is_last, 1.0, jnp.sqrt(self.beta_schedule[tt]))[:, None, None, None]
 
         log_probs = distrax.Normal(mean, safe_std).log_prob(xt_bwd)
@@ -223,37 +222,60 @@ class PPO():
         return ratio
 
 
-    def loss_fn(self, params, model, x_in, log_prob_old, x_out, t_vec, advantage, mask, eps = 0.1):
+    def loss_fn(self, params, x_in, log_prob_old, x_out, advantage, mask, eps = 0.1):
         """ This function calculates the PPO objective.
         Log probs are potentially in batches so take the average over the batch?
         """
 
-        ratio = compute_ratio_step(self, model, params, x_in, log_prob_old, x_out, t_vec)
+        ratio = self.compute_ratio_step(params, x_in, log_prob_old, x_out)
         adv = advantage[:, :, None]
         loss = ratio * adv
         clipped_loss = jnp.clip(ratio, 1-eps, 1+eps) * adv
         surrogate = jnp.minimum(loss, clipped_loss)
-        per_chain_loss = (surrogate * mask).sum(axis = -1)
+
+        # Decided to mean over all axes rather than summing like proposed in the DDPO paper.
+        # This makes the magnitude of the loss invariant to chain length (T) - interesting in case
+        # we do DDIM instead of DDPM. 
+        per_chain_loss = (surrogate * mask).sum(-1) / mask.sum(-1)
         
         return -per_chain_loss.mean()
 
-    def forward_probs(self, x_ts, std):
-        """ This function evaluates the log-probabilities under the updated policy.
-        Gets a normal distribution centered at the previous sample and a pre-defined std.
+    @functools.partial(jax.jit, static_argnums=(0,))
+    def update_params_step(self, params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1):
+        """ This function updates the model parameters by differentiating through the PPO loss. 
         """
-        raise NotImplementedError
+        
+        loss_values, grads = jax.value_and_grad(self.loss_fn)(params, x_in, log_prob, x_out, advantage, mask, eps)
+        updates, opt_state = self.optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
 
-    def train_step(self):
-        # sampling_std = config[std]
-        #
-        # for b in batch:
-        #
-        #     xt, log_probs_old, rewards = sample()
-        #
-        #     for k in range(K): ## number of inner gradient steps to take over a batch
-        #
-        #         log_probs = forward_probs(xt[k], std)
-        #         advantage = ## standardise rewards per low res sample
-        #         loss = loss_fn(log_probs_old, log_probs, advantage)
-        #         params = opt_stop(loss, params)
-        raise NotImplementedError
+        return loss_values, params, opt_state
+
+
+    def train_step(self, x_LR, params, opt_state, n_inner, noise_key, batched_step_keys):
+        """ This function performs one full step of PPO update.
+            - Noises a batch of low-res inputs
+            - Collect a batch of low-res to high-res trajectories, M samples per each low-res input in the batch,
+            - Applied n steps of PPO optimisation
+            - Returns the updated parameters, reward components & loss value. 
+        """
+
+        # 1. Noise the low-res input
+        xT = self.ddpm.forward_process(x_LR, self.T, noise_key)
+
+        # 2. Rollout trajectories
+        x0, x_in, x_out, log_prob, is_last, advantage, comps = self.sample_trajectories(params, xT, batched_step_keys)
+        
+        mask = 1 - is_last # invert the mask so that all but the last denoising step gradients are passed.
+
+        # 3. for n_inner steps do:
+        #       - compute log prob ratio by doing a forward pass through the updated model.
+        #       - compute advantage
+        #       - compute clipped loss
+        #       - collect gradients
+        #       - collect updates on parameters and new opt_state
+        #       - apply the updates to the current parameters.
+        for _ in range(n_inner):
+            loss_values, params, opt_state = self.update_params_step(params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1)
+
+        return loss_values, params, opt_state, comps

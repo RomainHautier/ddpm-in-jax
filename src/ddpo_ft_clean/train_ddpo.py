@@ -18,9 +18,11 @@ import jax.numpy as jnp
 import yaml
 import optax
 import distrax
+from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from ppo import PPO
 from src.models.model import DDPM
+from src.ddpo_ft.rewards_claude import Reward
 
 # Initialise a DDPM class, init the model and load the params to pass to the PPO class.
 
@@ -70,30 +72,13 @@ def main():
     # load parameters from the EMA base checkpoint (env BASE_CKPT / local / GCS)
     params = load_base_params()
 
-    ppo = PPO(ppo_config, ddpm, params)
+    # Initialise the reward class
+    reward_fn  = Reward.from_calibration("base_results/regime_stats_re1000.npz",
+                                 "base_results/reward_calibration.json",
+                                 re=1000, weights={"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": 1.0}, pde_hinge=True)
 
-    # --- Single sampling smoke test -------------------------------------------------------
-    # Real DDPO seeds the chain SDEdit-style: xT = sqrt(ab[t0])*x_input + sqrt(1-ab[t0])*noise.
-    # For a pure sampling-mechanics check, standard-normal xT is fine (chain length T=cfg T).
-    B = 2
-    sampling_key = jax.random.key(42)
-    init_key, chain_key = jax.random.split(sampling_key)
-    dummy_xT = jax.random.normal(init_key, shape=(B, im_size, im_size, channels))
-
-    x0, x_in, x_out, log_prob, is_last, advantage = ppo.sample_trajectories(
-        params, dummy_xT, chain_key)
-
-    print(f"x0        {x0.shape}   (expect (B={B}, M={ppo.M}, {im_size}, {im_size}, {channels}))")
-    print(f"x_in      {x_in.shape}   (expect (B, M, T={ppo.T}, H, W, C))")
-    print(f"x_out     {x_out.shape}")
-    print(f"log_prob  {log_prob.shape}   (expect (B, M, T))")
-    print(f"is_last   {is_last.shape}  sum per chain = {is_last.sum(-1)[0, 0]} (expect 1: only t=0)")
-    print(f"advantage {advantage.shape}   (expect (B, M)); per-group mean = "
-          f"{jnp.abs(advantage.mean(-1)).max():.2e} (expect ~0 by construction)")
-    print(f"sanity: x0 finite={bool(jnp.isfinite(x0).all())}  std={float(x0.std()):.3f} | "
-          f"log_prob finite={bool(jnp.isfinite(log_prob).all())}  "
-          f"mean per step={float(log_prob.mean()):.1f}")
-    
+    # Initialise the PPO class
+    ppo = PPO(ppo_config, ddpm, params, reward_fn)
 
     ### --- Building out the inner loop with n_inner gradient steps
 
@@ -104,17 +89,47 @@ def main():
     ## 5. Get the gradients by autodiff the loss and apply an opt step
     ## 6. Overwrite updated params
 
-    optimizer = optax.adam(learning_rate = ppo_config['lr'])
+    key = jax.random.key(42)
+    key, init_key = jax.random.split(key)
+
+    
     n_inner = ppo_config['n_opt_steps']
-    opt_state = optimiser.init(parameters)
+    opt_state = self.optimizer.init(params)
 
-    ### This loop runs n_inner times, and the gradient is aggregated loss from all B*M samples
-    for _ in range(n_inner):
 
-        loss_values, grads = jax.value_and_grad(ppo.loss_fn)( params, model, x_in, log_prob_old, x_out, t_vec, advantage, mask, eps = 0.1)
-        updates, opt_state = optax.update(grads, opt_state, params)
-        params = optax.apply_updates(params, updates)
+    ### --- Defining multi-chip sharding
+    B = 16
+    xB = jax.random.uniform(shape=(B, im_size, im_size, channels))
 
+    # collect the devices available
+    devices = np.array(jax.devices())
+    # create a mesh over these devices to call them, and call that axis "data" as we'll split along the
+    # batch axis of xB
+    mesh = Mesh(devices, axis_names=("data",))
+
+    # define how to shard the data on the devices. Data is sharded across devices through the data axis while
+    # parameters are replicated across all devices
+    data_sharding = NamedSharding(mesh, P("data")) # P("data") partition axis 0 over the data mesh axis. Each device receives B/n samples (B/n, H, W, C)
+    params_sharding = NamedSharding(mesh, P()) # P() means no axis partitioned
+
+    # put on device all the things which require to be sharded, params and opt state are the same across devices.
+    params = jax.device_put(params, params_sharding)
+    opt_state = jax.device_put(opt_state, params_sharding)
+    xB = jax.device_put(xB, data_sharding) # --> (B, H, W, C) split across chips.
+
+
+    # let xB  = x_LR
+
+    for _ in range(ppo_epochs):
+        key, noise_key, step_key = jax.random.split(key)
+        batch_step_keys = jax.device_put(jax.random.split(step_key, B), data_sharding)
+        loss_values, params, opt_state, comps = ppo.train_step(x_LR, params, opt_state, n_inner, noise_key, batch_step_keys)
+
+    ### -- TO DO:
+    # wrap the train step in a full training loop over batches.
+    # look into sharding the script across multiple chips: the train step itself is not fully sharded, since we 
+    # need to shard the step up until the gradient calculations before accumulating the gradients and then applying the full update.
+    # 
 
 
 if __name__ == "__main__":

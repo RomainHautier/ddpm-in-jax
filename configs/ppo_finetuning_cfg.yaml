@@ -2,6 +2,6 @@
 denoise: "DDPM" # Need to make the code robust to allow changes to DDIM
 T: 100
 M: 8
-lr: 1e-5
+lr: 1.0e-5
 n_opt_steps: 4
 
