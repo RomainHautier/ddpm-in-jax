@@ -14,11 +14,13 @@ Crank-Nicolson on the linear (viscous) term + explicit nonlinear advection, and 
 dealiasing. Initial conditions are a Gaussian random field N(0, tau^(alpha-1)(-lap+tau^2 I)^(-alpha)),
 tau=7, alpha=2.5 — identical to the FNO generator.
 
-Two forcing modes (`--forcing`):
-  * fno  (default): f = 0.1*(sin(x+y) + cos(x+y))  -> wavenumber (1,1), NO linear drag.
-                    This is the MNO / FNO "Kolmogorov flow" forcing. nu = 1/Re.
-  * kf            : f = -4*cos(4*y) - 0.1*omega    -> the kf_2d forcing (k=4 + drag), for
-                    cross-checking against this repo's training data.
+Three forcing modes (`--forcing`), all with nu = 1/Re:
+  * mno  (default): f = -4*cos(4*y), linear drag 0.01 -> the calibrated match to the Zenodo
+                    2D_NS Kolmogorov data (k=4 forcing, tiny drag; see forcing_field()).
+  * kf            : f = -4*cos(4*y), linear drag 0.1  -> this repo's kf_2d forcing (k=4 + drag),
+                    for cross-checking against the training data.
+  * fno           : f = 0.1*(sin(x+y) + cos(x+y)), NO drag -> the original FNO low-k forcing;
+                    kept for reference only (std~1.5, does NOT match the MNO NS data).
 
 The MNO arrays are float64, shape (n_traj, 501, res, res) (frame 0 = initial condition, then
 500 recorded steps), Re/res/n_traj: 40/64/200, 500/64/1000, 5000/128/100.
@@ -27,16 +29,16 @@ The MNO arrays are float64, shape (n_traj, 501, res, res) (frame 0 = initial con
 The Zenodo authors did NOT publish their exact `dt` and recording interval. The forcing, domain,
 viscosity (nu=1/Re), IC, dtype, and shape above are pinned from the data + the FNO solver, but the
 TIME SPACING between frames is not. Calibrate `--dt` / `--record-dt` against a downloaded array:
-match (a) per-frame std (Re500 ~ 4.50), (b) the k~1-peaked vorticity spectrum, and (c) the
+match (a) per-frame std (Re500 download ~4.78, identical to kf_2d), (b) the k~1-peaked spectrum, and (c) the
 frame-to-frame autocorrelation, using `validate_kmflow.py`. Defaults below are a starting point,
 not the published values.
 
 Runs on TPU/GPU/CPU. float64 is the faithful dtype but is slow/emulated on TPU; use --dtype
 float32 for speed (the diffusion model normalizes to float32 anyway).
 
-Example (Re=500 set, calibrate dt/record-dt against the download first):
-    python data_generation/generate_fno_ns_jax.py --forcing fno --re 500 --res 64 \
-        --n-samples 1000 --record-steps 501 --dt 1e-3 --record-dt 1.0 --seed 0 \
+Example (Re=500 set, calibrated forcing; still calibrate dt/record-dt against the download):
+    python data_generation/generate_fno_ns_jax.py --forcing mno --re 500 --res 64 \
+        --n-samples 1000 --record-steps 501 --dt 1e-3 --record-dt 0.34 --seed 0 \
         --dtype float32 --out 2D_NS_Re500_regen.npy
 """
 import argparse
