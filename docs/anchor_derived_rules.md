@@ -117,3 +117,35 @@ Retention gap 0.07-0.12; cross-regime preserves low-k slightly BETTER (shallower
 large scales less). The native model's durable edge is PLACEMENT (+0.06 both regimes): energy AMOUNT
 is transferable via inference dose, energy POSITION is what in-regime training buys and an inference
 knob cannot recover. Figures: fig_ladder_{spec,pdf,fields}_{re1000,re2000}.
+
+### R5 — OUT-OF-SAMPLE TEST ON UNSEEN REGIMES: THE ABSOLUTE SET-POINT IS REFUTED
+(2026-07-29, src/ddpo_ft/crossregime_new.py; Re=1500 + Re=3000, new generator, no model ever
+trained on them, no part in any calibration. Blind picks on the anchor's source pool, GT revealed
+after. Measured band from Stage 0 @itemp0.30: [0.798, 0.858].)
+SCORECARD (GT-best rung by |ret-1| vs the blind pick): 1 hit / 5.
+  re1000@re1500 (up)   GT-best K4  (1.066, blind 0.873) | pick K4        1.066  HIT
+  re2000@re1500 (down) GT-best K3  (1.068, blind 0.888) | pick K2        0.636  MISS
+  re10000@re1500(down) GT-best K2  (1.165, blind 0.863) | pick K1[100]   0.746  MISS
+  re2000@re3000 (up)   GT-best K3  (0.758, blind 0.690) | pick K4        1.332  MISS
+  re10000@re3000(down) GT-best K2  (0.831, blind 0.681) | pick K3        1.689  MISS
+WHAT SURVIVES (and is strong): the blind score RANKS the ladder correctly in all five, and the
+parity reading is nearly MODEL-INDEPENDENT within a regime — 0.863/0.873/0.888 for three different
+models at Re=1500; 0.681/0.690 for two at Re=3000.
+WHAT FAILS: the parity reading is a REGIME constant, not a universal one. It tracks the anchor's
+bias, measured here as anchor/GT over [10,96): Re=1500 1.088, Re=3000 1.419, Re=2000(old) 0.838.
+RETRACTION: the R5-CORRECTION claim "factor 1 ~ 1 BY CONSTRUCTION for obs-fit anchors" is FALSE.
+Measured in the FITTED band [6,30): 1.020 (re1500), 1.309 (re3000), 0.818 (re2000-old). The
+obs-fit is prior-regularized (alpha/p/kd priors carry weight), so when a regime's true shape
+departs from the reference-derived priors the fit is pulled off its own observations.
+ALSO REFUTED: normalizing the score by the base recon's score does not cancel the bias
+(parity/base = 1.22-1.26 at Re=1500 but ~1.45 at Re=3000).
+NARROWED SCOPE: R5 is valid for dose-correcting a FOREIGN model inside a regime that already has a
+healthy native reference (its parity reading is then measurable GT-free from that reference, and
+transfers across models). It is NOT valid for a brand-new regime. Prior R5 validations stand —
+they ran inside the calibration regimes — but the generalization claim does not.
+SECONDARY: up-transfer is more strained than down-transfer (K4 buys retention but costs placement
+0.734->0.630 and low-k 0.931->0.884; truncation costs almost nothing). The PDE floor cannot serve
+as an alternative selector — at Re=3000 the law gives 199.5 vs measured residuals 15-25.
+PATH FORWARD: make the anchor accurate in its own observation band (weaken the shape priors there,
+or re-derive the coarse->fine transfer per data generation); a set-point only becomes portable if
+the instrument stops drifting between regimes.
