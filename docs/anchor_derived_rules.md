@@ -106,3 +106,14 @@ BLIND CHECK (r5_blind_check.py): ood-re10000 @ re2000, source-pool scores 1.090/
 2.532 full-depth). Cross-check honesty: resolved-vs-LR parity (~1.0 all rungs) and residual-vs-
 floor did NOT discriminate here (floor 66.6 loose at Re=2000) — they are guards against gross
 failure, not selectors; the anchor score is the selector.
+
+### R5 — cross-regime vs NATIVE benchmark (2026-07-24, ladder viz with native overlay)
+After blind de-dosing, the foreign model lands close to the in-regime model on the same frames:
+  @Re=1000: cross (Re10000 model, K1[100]) ret 1.059 / place 0.845 / lowk 0.994
+            native (in-dist model, K3)     ret 0.937 / place 0.906 / lowk 0.978
+  @Re=2000: cross (Re10000 model, K2)      ret 1.230 / place 0.750 / lowk 0.994
+            native (Re2000 model, K3)      ret 1.160 / place 0.817 / lowk 0.921
+Retention gap 0.07-0.12; cross-regime preserves low-k slightly BETTER (shallower chain disturbs the
+large scales less). The native model's durable edge is PLACEMENT (+0.06 both regimes): energy AMOUNT
+is transferable via inference dose, energy POSITION is what in-regime training buys and an inference
+knob cannot recover. Figures: fig_ladder_{spec,pdf,fields}_{re1000,re2000}.
