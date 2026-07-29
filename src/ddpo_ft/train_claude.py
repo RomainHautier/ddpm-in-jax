@@ -435,6 +435,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                   f"[{anchor_band[0]:.3f}, {anchor_band[1]:.3f}] for {anchor_patience} consecutive "
                   f"checks (every {anchor_monitor_every} iters)", flush=True)
     in_band = 0
+    stopped_early = False
 
     for outer in range(n_outer):
         gi = start_iter + outer
@@ -464,6 +465,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
             if anchor_band and in_band >= anchor_patience:
                 print(f"    [R6 EARLY STOP] anchor score in band for {anchor_patience} consecutive "
                       f"checks -> stopping at iter {gi}", flush=True)
+                stopped_early = True
                 save_ckpt(trainer.params, trainer.opt_state, gi, save_dir,
                           ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
                 if metrics_path:
@@ -477,7 +479,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
             save_ckpt(trainer.params, trainer.opt_state, gi, save_dir,
                       ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
 
-    if not smoke:
+    if not smoke and not stopped_early:
         save_ckpt(trainer.params, trainer.opt_state, start_iter + n_outer - 1, save_dir,
                   ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
     print("\nDONE.", flush=True)
