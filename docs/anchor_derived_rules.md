@@ -71,3 +71,22 @@ sealed Re=10000 seqs 25–39 (Stage 2, frozen config, user-gated) tests the whol
 New Re=2000/10000 data on the user's drive: run the pre-flights first (temporal lag-1, anchor
 fingerprint, seq-independence ≥5-index spacing), rebuild anchors per procedure, then R1–R4 apply
 unchanged.
+
+## R5 — INFERENCE-DEPTH SELECTION FOR CROSS-REGIME DEPLOYMENT [healthy-reference set-point]
+(2026-07-24 backtest, src/ddpo_ft/backtest_lower_re.py + monitoring/depth_sweep_re10k_at_re2k.py)
+Finetuned models carry their training regime's ENERGY DOSE in the weights: at full frozen depth,
+the Re=2000 model overshoots Re=1000 by 1.52x; the Re=10000 model overshoots Re=1000 by 3.92x and
+Re=2000 by 2.53x. Nothing structural is lost (k* stays 95, low-k intact; the in-dist model on
+virgin seqs 0/16 reads 0.937/0.906 — first fully-virgin in-dist eval) — it is a dose problem.
+CURE (GT-free): sweep the inference-depth ladder (K3x86 -> K2x50 -> K1[100]x20 -> K1[75]x20 ->
+K1[50]x12) and pick the config whose blind anchor score lands at the regime's HEALTHY SET-POINT:
+  theta(regime) := the blind reading of a verified-good native model on the same pool.
+  Re=1000: 0.66-0.68 (four GT-verified runs + virgin pool, tight). Re=2000: 1.116 (native model).
+  NOT 1.0 — the score's healthy value is offset by the anchor's own bias (true GT reads 0.78 on
+  the Re=1000 anchor) times the universal mid-band shortfall (~0.88): 0.78 x 0.88 = 0.68.
+  Targeting 1.0 selects the overshooting config every time (naive-parity rule FAILS).
+Results of the blind picks: 2x model @Re1000 -> K2 (ret 0.870, place 0.867); 10x model @Re1000 ->
+K1[100] (ret 1.059, place 0.845); 10x model @Re2000 -> K2 (ret 1.230, place 0.750 = native's).
+Dose-depth law: hotter model -> shallower blind pick, monotone in every sweep. The coarse 5-rung
+ladder lands within ~0.2 of parity; a finer ladder would tighten it. Depth selection REPAIRS dose
+mismatch; it does not replace native finetuning (the set-point requires a healthy native reference).

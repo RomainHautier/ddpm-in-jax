@@ -733,3 +733,11 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   energy at input-undetermined positions -> corr 0.21; heavy smoothing recovers only to 0.32 (coarse
   arrangement unconstrained = true info ceiling, not jitter). Nothing destroyed: base recon exists in
   the cascade; sample-averaging recovers hedged maps. fig_sealed_placement_decomp.png in report.
+
+## 2026-07-24 — lower-Re backtest + R5 inference-depth rule (dose-depth compensation)
+- OOD models carry their training dose: 1.52x/3.92x/2.53x overshoot at full depth on milder
+  regimes. In-dist model on virgin seqs 0/16: 0.937/0.906 (first fully-virgin in-dist eval).
+- R5: blind depth selection at the regime's healthy set-point (theta = verified-good native
+  reading; 0.68 in-dist ruler decomposed as 0.78 anchor-bias x 0.88 mid-band shortfall). Blind
+  picks: K2->0.870 (2x@1000), K1[100]->1.059 (10x@1000), K2->1.230 (10x@2000). Naive parity
+  target selects the overshoot every time. docs/anchor_derived_rules.md R5.
