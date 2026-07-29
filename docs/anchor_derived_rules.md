@@ -90,3 +90,19 @@ K1[100] (ret 1.059, place 0.845); 10x model @Re2000 -> K2 (ret 1.230, place 0.75
 Dose-depth law: hotter model -> shallower blind pick, monotone in every sweep. The coarse 5-rung
 ladder lands within ~0.2 of parity; a finer ladder would tighten it. Depth selection REPAIRS dose
 mismatch; it does not replace native finetuning (the set-point requires a healthy native reference).
+
+### R5 CORRECTION (same day, user-caught): the set-point must not reference GT-verified models
+As first written, theta(regime) = "reading of a VERIFIED-GOOD native model" — verification used GT,
+unusable at a virgin regime. CORRECTED, fully-blind formulation, validated:
+  set-point = (anchor/truth offset in the band) x (achievable healthy restoration)
+  - factor 1 ~ 1 BY CONSTRUCTION for frozen obs-fit anchors: the obs band k[6,30] is fitted to
+    the deployment LR itself and carries 92% of the score's energy. No GT needed.
+  - factor 2 ~ 0.85 (in-dist-derived at Re=1000; consistent with healthy OOD readings 0.79-0.85).
+  => deployable set-point band [0.80, 0.85], scored ON THE ANCHOR'S SOURCE POOL (the LR at hand).
+  The Re=1000 "0.68" never enters deployment: that regime's measured-stats anchor is hot by 1/0.78
+  (factor 1 = 0.78) — a different instrument, only readable because in-dist GT is legitimate.
+BLIND CHECK (r5_blind_check.py): ood-re10000 @ re2000, source-pool scores 1.090/0.835/0.759/0.711/
+0.681 for K3/K2/K1[100]/K1[75]/K1[50] -> band selects K2, which is the GT-best rung (1.230 vs
+2.532 full-depth). Cross-check honesty: resolved-vs-LR parity (~1.0 all rungs) and residual-vs-
+floor did NOT discriminate here (floor 66.6 loose at Re=2000) — they are guards against gross
+failure, not selectors; the anchor score is the selector.

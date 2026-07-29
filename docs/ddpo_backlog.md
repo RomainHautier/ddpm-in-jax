@@ -741,3 +741,8 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   reading; 0.68 in-dist ruler decomposed as 0.78 anchor-bias x 0.88 mid-band shortfall). Blind
   picks: K2->0.870 (2x@1000), K1[100]->1.059 (10x@1000), K2->1.230 (10x@2000). Naive parity
   target selects the overshoot every time. docs/anchor_derived_rules.md R5.
+
+## 2026-07-24 — R5 corrected (user-caught GT leak in the set-point) + fully-blind validation
+- Set-point reformulated: obs-fit factor-1~1 by construction x in-dist factor-2 0.85 -> band
+  [0.80,0.85] on the anchor's source pool. Blind check @re2000: selects K2 (GT-best, 1.230) with
+  zero GT. Guards (resolved-vs-LR, resid-vs-floor) non-discriminative here; anchor score selects.
