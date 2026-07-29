@@ -76,6 +76,7 @@ def main():
 
     # load parameters from the EMA base checkpoint (env BASE_CKPT / local / GCS)
     params = load_base_params()
+    base_params = params
 
     # Initialise the reward class
     reward_fn  = Reward.from_calibration("base_results/regime_stats_re1000.npz",
@@ -116,7 +117,6 @@ def main():
     shuffle_seed = ppo_config["shuffle_seed"]
     factor = ppo_config["downsampling_factor"]
 
-
     LR_ds = (
         grain.MapDataset.source(input_source)
         .map(functools.partial(grid_downsample_degrade, factor=factor))
@@ -143,6 +143,7 @@ def main():
 
     # put on device all the things which require to be sharded, params and opt state are the same across devices.
     params = jax.device_put(params, params_sharding)
+    base_params = jax.device_put(base_params, params_sharding)
     opt_state = jax.device_put(opt_state, params_sharding)
     
     rng = np.random.default_rng(shuffle_seed)
@@ -163,7 +164,7 @@ def main():
         x_LR = jax.device_put(x_LR, data_sharding) # --> (B, H, W, C) split across chips.
         key, noise_key, step_key = jax.random.split(key, 3)
         batch_step_keys = jax.device_put(jax.random.split(step_key, B), data_sharding)
-        loss_values, params, opt_state, comps = ppo.train_step(x_LR, params, opt_state, n_inner, noise_key, batch_step_keys)
+        loss_values, params, opt_state, comps = ppo.train_step(x_LR, base_params, params, opt_state, n_inner, noise_key, batch_step_keys)
 
         # check if the params are correctly updating
         delta = optax.global_norm(jax.tree.map(lambda a, b: a-b, params, init_params))

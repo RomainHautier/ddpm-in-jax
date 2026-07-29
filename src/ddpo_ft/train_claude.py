@@ -160,6 +160,56 @@ def make_gt_probe(seq_id=36, n=4, gt_path=GT_PATH, grid_factor=None, base_denois
     return jnp.asarray(probe), jnp.asarray(gt[idx])
 
 
+def build_anchor_monitor(re, cfg, stats_path, grid_factor, base_params, ddpm, n_per=6):
+    """R6: a GT-FREE in-loop probe that scores the DEPLOYMENT configuration, not a training proxy.
+
+    Returns score(params) = E_deployed[10,96) / E_anchor[10,96), where E_deployed comes from the
+    frozen deployment cascade (K3 [150,100,50], 86 steps, lam3 guidance, itemp 0.30) run on a FIXED
+    base-DDIM reconstruction of the TRAIN-POOL low-res inputs — identical in every respect to the
+    quantity R3.2 uses post-hoc, so the monitor and the selector measure the same thing.
+    """
+    import numpy as _np, jax as _jax, jax.numpy as _jnp
+    from diag_guided_residual import make_kchain_ddim_sampler
+    from ppo_claude import build_ddim_denoiser
+    from src.rewards import make_spectrum_fn
+    from src.physics_guidance import make_dx_func
+    from src.sequence_inference import build_triplets, grid_downsample_degrade, load_sequence
+
+    ab = ddpm.alpha_bar
+    anchor = _np.load(stats_path)["spec_ref"]
+    spec_fn = make_spectrum_fn(N)
+    dx = make_dx_func(n=N, re=float(re), std=STD, mean=MEAN)
+    ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
+    sa0, s10 = float(_jnp.sqrt(ab[100])), float(_jnp.sqrt(1.0 - ab[100]))
+    sat, s1t = float(_jnp.sqrt(ab[150])), float(_jnp.sqrt(1.0 - ab[150]))
+    deep = make_kchain_ddim_sampler(ddpm.unet, ab, [150, 100, 50], 86, dx, 3.0, temp=0.30)
+
+    xl = []
+    for s in cfg["train_seqs"]:
+        l = build_triplets(grid_downsample_degrade(load_sequence(cfg["gt"], s), grid_factor or 4), MEAN, STD)
+        xl.append(l[_np.linspace(0, len(l) - 1, min(n_per, len(l))).astype(int)])
+    xl = _np.concatenate(xl)
+
+    def _batched(fn, xin, seed, bs=8):
+        k = _jax.random.PRNGKey(seed); o = []
+        for i in range(0, len(xin), bs):
+            o.append(_np.asarray(fn(_jnp.asarray(xin[i:i + bs]), _jax.random.fold_in(k, i))))
+        return _np.concatenate(o)
+
+    recon = _batched(lambda xb, kk: ddim20(base_params, sa0 * xb + s10 * _jax.random.normal(
+        _jax.random.fold_in(kk, 1), xb.shape)), xl, 500)
+
+    def score(params):
+        y = _batched(lambda xb, kk: deep(params, sat * xb + s1t * _jax.random.normal(
+            _jax.random.fold_in(kk, 1), xb.shape), _jax.random.fold_in(kk, 2)), recon, 700)
+        E = _np.asarray(spec_fn(_jnp.asarray(y))).mean(0)
+        return float(E[10:96].sum() / anchor[10:96].sum())
+
+    print(f"    R6 ANCHOR MONITOR: deployment cascade K3[150,100,50]x86 lam3 itemp0.30 on "
+          f"{len(recon)} fixed train-pool inputs vs {os.path.basename(stats_path)} (GT-free)", flush=True)
+    return score
+
+
 def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
@@ -167,7 +217,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
-         pde_two_sided=False, fresh_opt=False):
+         pde_two_sided=False, fresh_opt=False,
+         anchor_monitor_every=0, anchor_band=None, anchor_patience=2):
     import json
     import pickle
     import jax
@@ -376,6 +427,15 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         print(f"    POLICY EMA: shadow weights, mu={policy_ema} per outer iter "
               f"(~{1.0/(1.0-policy_ema):.0f}-iter horizon); checkpoints carry ema_params+ema_rate", flush=True)
 
+    anchor_score = None
+    if anchor_monitor_every and not smoke:
+        anchor_score = build_anchor_monitor(re, cfg, stats_path, grid_factor, base_orig, ddpm)
+        if anchor_band:
+            print(f"    R6 EARLY STOP: halt once the anchor score sits in "
+                  f"[{anchor_band[0]:.3f}, {anchor_band[1]:.3f}] for {anchor_patience} consecutive "
+                  f"checks (every {anchor_monitor_every} iters)", flush=True)
+    in_band = 0
+
     for outer in range(n_outer):
         gi = start_iter + outer
         m = trainer.train_iter(next(inputs))
@@ -393,6 +453,23 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
             hr = hik_ret(trainer.probe_x0(probe_inp, jax.random.PRNGKey(gi)), probe_gt)
             rec["gt_hik_ret"] = hr
             print(f"    [GTeval iter={gi}] hik_ret={hr:.3f}  (base {base_hik:.3f}, Δ{hr - base_hik:+.3f})", flush=True)
+        if anchor_score is not None and (gi + 1) % anchor_monitor_every == 0:
+            _p = jax.tree_util.tree_map(lambda a: a[0], trainer.params)
+            sc = anchor_score(_p)
+            rec["anchor_score"] = sc
+            hit = bool(anchor_band and anchor_band[0] <= sc <= anchor_band[1])
+            in_band = in_band + 1 if hit else 0
+            print(f"    [R6 anchor iter={gi}] deployed/anchor = {sc:.3f}"
+                  + (f"  IN BAND ({in_band}/{anchor_patience})" if hit else ""), flush=True)
+            if anchor_band and in_band >= anchor_patience:
+                print(f"    [R6 EARLY STOP] anchor score in band for {anchor_patience} consecutive "
+                      f"checks -> stopping at iter {gi}", flush=True)
+                save_ckpt(trainer.params, trainer.opt_state, gi, save_dir,
+                          ema_params=ema_params, ema_rate=policy_ema if ema_params is not None else None)
+                if metrics_path:
+                    with open(metrics_path, "a") as f:
+                        f.write(json.dumps(rec) + "\n")
+                break
         if metrics_path:
             with open(metrics_path, "a") as f:
                 f.write(json.dumps(rec) + "\n")
@@ -482,6 +559,15 @@ if __name__ == "__main__":
     ap.add_argument("--kl_coef", type=float, default=None,
                     help="KL leash to the base policy (default 0.01). Lower -> policy free to travel "
                          "further from base.")
+    ap.add_argument("--anchor_monitor_every", type=int, default=0,
+                    help="R6: every N outer iters, score the DEPLOYMENT cascade (K3 [150,100,50] x86, "
+                         "lam3, itemp 0.30) on a fixed train-pool batch against the anchor. 0 = off "
+                         "(legacy behaviour: GT probe only, post-hoc R3.2 selection).")
+    ap.add_argument("--anchor_band", type=float, nargs=2, default=None, metavar=("LO", "HI"),
+                    help="R6 early-stop band for the anchor score; stop once inside it for "
+                         "--anchor_patience consecutive checks. Requires --anchor_monitor_every.")
+    ap.add_argument("--anchor_patience", type=int, default=2,
+                    help="consecutive in-band checks required to stop (guards the ~0.02 check noise)")
     ap.add_argument("--clip_eps", type=float, default=0.2,
                     help="PPO clip epsilon (ratio clamp 1+-eps). Default 0.2 (standard). Wider "
                          "(0.3-0.4) allows larger per-update policy steps -> faster travel when the "

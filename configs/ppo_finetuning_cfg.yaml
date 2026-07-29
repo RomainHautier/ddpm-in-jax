@@ -13,4 +13,5 @@ shuffle_seed: 0
 train_idx: [32, 33]
 batch_size: 4
 re: 1000
+kl_coef: 0.01
 

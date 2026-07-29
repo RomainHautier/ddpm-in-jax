@@ -68,6 +68,9 @@ class PPO():
         # T denoising steps
         self.T = ppo_config['T']
 
+        # KL penalty strength
+        self.kl_coef = ppo_config['kl_coef']
+
         # Initialising the timesteps at which to denoise (currently only supports DDPM)
         self.t_vec = jnp.arange(self.T, 0, -1)
 
@@ -198,7 +201,7 @@ class PPO():
         return jax.vmap(group_denoising_chain, (0, None, 0))(xT, params, chain_keys)
 
 
-    def compute_ratio_step(self, params, x_in, log_prob_old, x_out):
+    def compute_ratio_step(self, base_params, params, x_in, log_prob_old, x_out):
         
         B, M, T = x_in.shape[:-3]
         H, W, C = x_in.shape[-3:]
@@ -207,6 +210,7 @@ class PPO():
         tt = jnp.broadcast_to(self.t_vec, (B, M, T)).reshape(B*M*T)
 
         eps_pred = self.model.apply({"params": params}, xt, tt, train=False)
+        eps_base = self.model.apply({"params": base_params}, xt, tt, train=False)
 
         alpha_bar_t = self.alpha_bar[tt]
         alpha_t = 1 - self.beta_schedule[tt]
@@ -214,10 +218,10 @@ class PPO():
 
         mean = (1 / jnp.sqrt(alpha_t))[:, None, None, None] * (
             xt - alpha_coef * eps_pred)
-
+        
         is_last = (tt == 1)
         safe_std = jnp.where(is_last, 1.0, jnp.sqrt(self.beta_schedule[tt]))[:, None, None, None]
-
+        
         log_probs = distrax.Normal(mean, safe_std).log_prob(xt_bwd)
         log_prob_batched = jnp.sum(log_probs, axis=(-3, -2, -1))
         log_prob_batched = jnp.where(is_last, 0.0, log_prob_batched)
@@ -225,15 +229,25 @@ class PPO():
         
         ratio = jnp.exp(jnp.clip(log_prob_new - log_prob_old, -20.0, 20.0))
 
-        return ratio
+        # Computing the KL divergence penalty - preventing the drift from the initial base model.
+        mean_base = (1 / jnp.sqrt(alpha_t))[:, None, None, None] * (
+            xt - alpha_coef * eps_base)
+
+        # mean(B*M*T, H,WC) same for safe_Std (B*M*T, 1,1,1), need same for kl_penalty
+        # then kl_penalty is of shape (B*M*T, H,W,C)
+        # we want a scalar penalty to apply to the loss, sum over the last 3 axes and standardise
+        # then get the mean over that B*M*T, array? 
+        kl_penalty = (jnp.where(is_last[:, None, None, None], 0.0, (mean - mean_base)**2 / (2*safe_std**2))).sum(axis=(-1, -2, -3)).reshape(B,M,T)
+    
+        return ratio, kl_penalty
 
 
-    def loss_fn(self, params, x_in, log_prob_old, x_out, advantage, mask, eps = 0.1):
+    def loss_fn(self, params, base_params, x_in, log_prob_old, x_out, advantage, mask, eps = 0.1):
         """ This function calculates the PPO objective.
         Log probs are potentially in batches so take the average over the batch?
         """
 
-        ratio = self.compute_ratio_step(params, x_in, log_prob_old, x_out)
+        ratio, kl_penalty = self.compute_ratio_step(base_params, params, x_in, log_prob_old, x_out)
         adv = advantage[:, :, None]
         loss = ratio * adv
         clipped_loss = jnp.clip(ratio, 1-eps, 1+eps) * adv
@@ -242,23 +256,26 @@ class PPO():
         # Decided to mean over all axes rather than summing like proposed in the DDPO paper.
         # This makes the magnitude of the loss invariant to chain length (T) - interesting in case
         # we do DDIM instead of DDPM. 
-        per_chain_loss = (surrogate * mask).sum(-1) / mask.sum(-1)
+        per_chain_loss = (surrogate * mask).sum(-1) / mask.sum(-1) 
         
-        return -per_chain_loss.mean()
+        kl_penalty_loss = kl_penalty.sum(-1) / mask.sum(-1)
+
+        return -per_chain_loss.mean() + self.kl_coef*kl_penalty_loss.mean()
 
     @functools.partial(jax.jit, static_argnums=(0,))
-    def update_params_step(self, params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1):
-        """ This function updates the model parameters by differentiating through the PPO loss. 
+    def update_params_step(self, params, base_params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1):
+        """ This function updates the model parameters by differentiating through the PPO loss,
+        collecting the gradients and applying an optimizer step to the current copy of parameters. 
         """
         
-        loss_values, grads = jax.value_and_grad(self.loss_fn)(params, x_in, log_prob, x_out, advantage, mask, eps)
+        loss_values, grads = jax.value_and_grad(self.loss_fn)(params, base_params, x_in, log_prob, x_out, advantage, mask, eps)
         updates, opt_state = self.optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
 
         return loss_values, params, opt_state
 
 
-    def train_step(self, x_LR, params, opt_state, n_inner, noise_key, batched_step_keys):
+    def train_step(self, x_LR, base_params, params, opt_state, n_inner, noise_key, batched_step_keys):
         """ This function performs one full step of PPO update.
             - Noises a batch of low-res inputs
             - Collect a batch of low-res to high-res trajectories, M samples per each low-res input in the batch,
@@ -293,7 +310,7 @@ class PPO():
         #       - collect updates on parameters and new opt_state
         #       - apply the updates to the current parameters.
         for _ in range(n_inner):
-            loss_values, params, opt_state = self.update_params_step(params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1)
+            loss_values, params, opt_state = self.update_params_step(params, base_params, opt_state, x_in, log_prob, x_out, advantage, mask, eps = 0.1)
 
 
         return loss_values, params, opt_state, comps
