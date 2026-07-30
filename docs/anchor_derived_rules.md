@@ -245,3 +245,23 @@ non-portable. It also shows the GENERATOR mismatch (1024->256 vs 256-native) is 
 reference-derived trend crosses generators to within 4%.
 NEXT: implement T(Re) in anchor_obsfit_builder.py, rebuild all anchors, re-measure anchor/GT bias,
 then re-run the blind selection to test whether the set-point becomes portable.
+
+### T(Re) — IMPLEMENTED BUT PARKED FOR RESEARCH (user decision, 2026-07-30)
+Status: the current selection/grading runs FINISH ON THE LEGACY FIXED-T ANCHORS. T(Re) is opt-in
+via `T_RE_SCALING=1` (build(..., t_re_scaling=True)); the DEFAULT IS LEGACY and was verified to
+reproduce the in-use anchors bit-for-bit, so every result to date stays reproducible.
+Research artifacts already built with T(Re) on, for the eventual comparison:
+  regime_stats_re{1500,3000,4000,5000}_obsfit_tre.npz   (T factors 1.036/1.069/1.084/1.095)
+When picking this up, the affected chain is: rebuild anchors -> re-measure anchor/GT bias ->
+RE-DERIVE the set-point band (it is defined by healthy models' blind readings, which move with the
+anchor) -> re-run the blind selection + pick grading. Do not flip the default without that whole
+chain, or the band and the scores will be on different instruments.
+SECOND, INDEPENDENT DEFECT (not yet addressed): the dt32-based anchors are fitted on only 16 LR
+samples (4 seqs x 4 frames) vs 136 for the new-generation anchors — enough noise for ~10% amplitude
+error, and the likely cause of Re=2000's cold reading (0.870 +- 0.083) which T(Re) does NOT explain
+(wrong sign). Fix available: the anchor is a purely SPATIAL statistic, so it can be built from the
+RAW fine-dt file's LR using all 320 frames/sequence (1280 samples) — still training-sequence LR
+only, no GT. Note the stored fingerprint would then reference the raw file; verify_freshness would
+need the same source to compare against.
+MEASURED anchor/GT bias in [6,30), 5 disjoint groups (for reference when this resumes):
+  re1500 1.032+-0.048 | re2000(old) 0.870+-0.083 | re3000 1.213+-0.052 | re10000(old) 1.313+-0.132

@@ -61,12 +61,31 @@ def obs_fit(E_obs_corr, prior, kd_prior, w_a=8., w_p=4., w_kd=6.):
     return dict(zip(('logA','alpha','kd','p'),
         least_squares(resid, th0, bounds=([-40,0,5,0.5],[40,4,400,6]), max_nfev=40000).x))
 
-def build(target_path, re_t, target_seqs, out_path):
+def build(target_path, re_t, target_seqs, out_path, t_re_scaling=False):
     E500, E1000 = fine_spec(REFS[500], range(0,10)), fine_spec(REFS[1000], range(0,10))
     C500, C1000 = coarse_spec(REFS[500], range(0,10)), coarse_spec(REFS[1000], range(0,10))
     F500, F1000 = fit_full(E500), fit_full(E1000)
-    T = 0.5*(C500[KOBS]/E500[KOBS] + C1000[KOBS]/E1000[KOBS])
-    Tlow = 0.5*(C500[0:KF+1]/E500[0:KF+1] + C1000[0:KF+1]/E1000[0:KF+1])
+    # The coarse->fine transfer T(k) is NOT Re-independent: aliasing of energy from above the
+    # coarse-grid Nyquist grows with Re, so T rises ~15% from Re=500 to Re=5000 (measured
+    # 2026-07-30). Using the fixed reference value inflates the anchor for hotter targets — it
+    # explained Re=1500's bias exactly and ~half of Re=3000's and Re=10000's. So extrapolate T in
+    # Re exactly as kd is: one exponent from the band-averaged references, per-k shape from their
+    # geometric mean. Validated on 6 regimes across 2 generators: predicts T to within 4.4%.
+    T500k, T1000k = C500[KOBS]/E500[KOBS], C1000[KOBS]/E1000[KOBS]
+    Tl500, Tl1000 = C500[0:KF+1]/E500[0:KF+1], C1000[0:KF+1]/E1000[0:KF+1]
+    # OPT-IN (t_re_scaling=True) — still under research as of 2026-07-30. DEFAULT IS LEGACY so
+    # every result produced to date remains reproducible; do not flip the default without
+    # re-deriving the set-point band and re-running the selection studies that depend on it.
+    if t_re_scaling:
+        p_T = float(np.log(T1000k.mean()/T500k.mean())/np.log(2.0))
+        RE_T_REF = np.sqrt(500.0*1000.0)
+        t_scale = (float(re_t)/RE_T_REF)**p_T
+        T = np.sqrt(T500k*T1000k)*t_scale
+        Tlow = np.sqrt(Tl500*Tl1000)*t_scale
+        print(f"  T(Re) SCALING ON: exponent {p_T:.4f}, factor {t_scale:.4f} vs Re={RE_T_REF:.0f}", flush=True)
+    else:
+        T = 0.5*(T500k + T1000k)
+        Tlow = 0.5*(Tl500 + Tl1000)
     prior = dict(alpha=0.5*(F500['alpha']+F1000['alpha']), p=0.5*(F500['p']+F1000['p']))
     q = np.log(F1000['kd']/F500['kd'])/np.log(2.0)
     # two-sided LOO correction, measured on refs (unchanged from the validated recipe)
@@ -121,7 +140,7 @@ def verify_freshness(anchor_path, target_path, target_seqs, tol=0.05):
 
 if __name__ == '__main__':
     tgt, re_t, seqs, out = sys.argv[1], int(sys.argv[2]), [int(x) for x in sys.argv[3].split(',')], sys.argv[4]
-    build(tgt, re_t, seqs, out)
+    build(tgt, re_t, seqs, out, t_re_scaling=os.environ.get('T_RE_SCALING') == '1')
 
 REF_LAG1 = (0.95, 0.9985)   # lag-1 frame corr of dt=1/32 generations: re1000 base 0.9907, old re2000 0.9864
 def temporal_compat_check(path, seqs):
