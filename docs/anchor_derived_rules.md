@@ -149,3 +149,40 @@ as an alternative selector — at Re=3000 the law gives 199.5 vs measured residu
 PATH FORWARD: make the anchor accurate in its own observation band (weaken the shape priors there,
 or re-derive the coarse->fine transfer per data generation); a set-point only becomes portable if
 the instrument stops drifting between regimes.
+
+### R6 — CIRCULARITY AUDIT (user-caught, 2026-07-30)
+The early-stop band [0.798, 0.858] = [re10000 healthy, re2000 healthy], both measured from those
+regimes' own finished 600-iter runs. Consequences, split per run:
+- Re=10000: the lower edge IS its own healthy value -> the criterion was derived from the run it
+  was applied to. Its non-fire is CIRCULAR and is discarded as a result. (An earlier draft called
+  it "structural"; that understated the problem.)
+- Re=2000: scores 0.803->0.834 never approached 0.858, so the binding threshold was 0.798 — a
+  FOREIGN constant (from re10000). The 42% saving therefore survives the circularity objection,
+  but n=1, and R5's refutation shows cross-regime constants are exactly what fails to transfer.
+  Read as suggestive, not validated.
+NO VALIDATED BLIND STOPPING CONSTANT EXISTS. Options and their status:
+  (a) threshold from another regime — refuted in general by R5 (anchor bias spans 0.82-1.31);
+  (b) no threshold, shape/slope criterion ("stop when the score stops rising") — the naive version
+      is ruled out by the data we have: re10000 was flat iters 199-349 (0.766->0.764) then climbed
+      to 0.798, so a slope rule stops it prematurely.
+WHAT IS SOUND: the mechanism — monitoring the DEPLOYMENT configuration in-loop, GT-free, and
+proven non-invasive (R6 re10000 ckpts are BITWISE IDENTICAL to the original run's, which also
+establishes seed-reproducibility of the pipeline).
+
+### CROSS-REGIME TRANSFER — SUMMARY OF WHAT THE EVIDENCE SUPPORTS
+1. A finetune stores two separable things: HOW MUCH fine-scale energy to inject (welded to the
+   training regime) and WHAT STRUCTURE to inject (transfers: morphology, spectral shape, PDF
+   tails, k*). Inference depth is a monotone, BIDIRECTIONAL knob on the amount (K4 adds, K1
+   removes) with no retraining.
+2. The knob cannot be set blind on a new regime: the correct target reads 0.87 (re1500), 0.685
+   (re3000), 0.80-0.86 (calibration regimes), and the spread tracks unmeasurable anchor bias.
+3. Even with the target known, native training keeps ~+0.06 placement over the de-dosed foreign
+   model (retention comes within 0.07-0.12). Dose is transferable; POSITION is what in-regime
+   training buys.
+4. Up-transfer is the worse direction (adding dose costs placement 0.734->0.630 and low-k
+   0.931->0.884; removing dose costs almost nothing).
+=> Cross-regime reuse is a FALLBACK, not a substitute for native finetuning (which is GT-free and
+   passed a sealed one-shot). It is worthwhile only where the dose can be fixed by an existing
+   native model or a small GT sample. THE UNLOCK IS THE ANCHOR, not the selection rule: every
+   failure traces to the obs-fit drifting 18% cold to 31% hot inside its own fitted band. Four
+   untouched regimes (1500/3000/4000/5000) are available to test an improved anchor.
