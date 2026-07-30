@@ -219,3 +219,29 @@ TRANSFER PERFORMANCE ITSELF (no retuning, frozen config):
 - PLACEMENT degrades monotonically with dose in EVERY regime (e.g. Re=5000: .806 -> .694 -> .642),
   and only the UNDER-dosed in-dist model ever improves placement over the base recon. Energy parity
   and positional accuracy are in direct tension — a real trade-off, not a tuning artefact.
+
+## ROOT CAUSE OF THE ANCHOR BIAS — IDENTIFIED AND FIXABLE (2026-07-30)
+The obs-fit builder estimates the HR spectrum from LR by dividing by a transfer function
+T(k) = coarse/fine, measured on the Re=500/1000 references and used as a FIXED CONSTANT
+(T_used = 0.00414, band-averaged over k=6..30).
+T IS RE-DEPENDENT (measured, band-averaged):
+  Re=500 0.00407 | Re=1000 0.00420 | Re=1500 0.00427 | Re=3000 0.00462 | Re=4000 0.00461 | Re=5000 0.00470
+i.e. +15% from Re=500 to Re=5000. Physical mechanism: at higher Re more energy sits above the
+coarse-grid Nyquist, so 4x subsampling aliases more of it back into the resolved band, raising
+coarse/fine. Using a fixed low-Re T UNDER-estimates T for hot targets, so Ct/T_used OVER-estimates
+the true spectrum => HOT anchor, error growing with Re.
+QUANTITATIVE ACCOUNTING (predicted inflation = T_true/T_used vs measured anchor/GT in [6,30)):
+  Re=1500  predict +3.1%  | measured 1.032  -> FULLY explained
+  Re=3000  predict +11.6% | measured 1.213  -> about HALF explained (rest: shape priors / LOO?)
+  Re=4000  predict +11.3% | not yet measured
+  Re=5000  predict +13.5% | not yet measured
+  Re=2000 (old gen) ran COLD 0.818 — opposite sign; that data is 256-native like the references so
+  T applies correctly there => a DIFFERENT error source (priors/LOO), still unidentified.
+THE FIX (GT-free, no new data): extrapolate T in Re exactly as kd already is. Fitting log T vs log Re
+on the REFERENCES ONLY gives T ~ Re^0.046, which predicts the measured T at all four unseen regimes
+to within 0.2-4.4% (1500: 0.2%, 3000: 4.4%, 4000: 3.0%, 5000: 3.9%). This would remove essentially
+all of Re=1500's bias and most of Re=3000's — the exact defect that makes the set-point
+non-portable. It also shows the GENERATOR mismatch (1024->256 vs 256-native) is minor: the
+reference-derived trend crosses generators to within 4%.
+NEXT: implement T(Re) in anchor_obsfit_builder.py, rebuild all anchors, re-measure anchor/GT bias,
+then re-run the blind selection to test whether the set-point becomes portable.
