@@ -764,3 +764,37 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
   0.973/0.978 (dt-compatible, no stride needed); seq independence max 0.218/0.233; std 5.10/4.96.
   Four untouched regimes now available (1500, 3000, 4000, 5000) — enough to test whether a
   better-behaved anchor makes the set-point portable.
+
+## 2026-07-30 — MAX-N RE-GRADE (user-demanded robustness): all OOD claims hold or improve
+Basis: 35 sequences x 2 triplets = 70 triplets (the dt32 file CEILING — see limitation below).
+Errors are bootstrap-BY-SEQUENCE (the honest unit; the 2 triplets per sequence overlap in 2 of 3
+frames and are NOT independent).
+Re=2000            ret            lowk   place  k*   blind
+  base recon       0.385 +-0.007  0.989  0.666  31   0.846
+  DDPO 600-iter    1.155 +-0.021  0.922  0.744  95   1.042   (hybrid kc=7 -> lowk 0.988)
+  DDPO R6 (349it)  1.148 +-0.020  0.945  0.748  95   1.021   (hybrid kc=7 -> lowk 0.988)
+Re=10000
+  base recon       0.210 +-0.005  0.989  0.703  30   0.557
+  DDPO 600-iter    0.934 +-0.044  0.998  0.221  65   0.771   (hybrid kc=6 -> lowk 0.990)
+VERDICTS:
+- R6 EARLY STOP CONFIRMED ROBUST: 349 vs 600 iters, dret = 0.007 vs SE 0.020 -> indistinguishable;
+  R6 slightly BETTER on low-k bleed (0.945 vs 0.922). 42% compute saving is real. Note this
+  comparison is independent of the set-point circularity — it only says iter349 deploys like iter599.
+- Re=2000 retention robust: 1.155 at n=70 vs 1.160 (n=8) / 1.166 (n=32). REVISED: placement is
+  0.744, not the 0.817 from the 8-triplet pool; still above base (0.666).
+- Re=10000 retention 0.934 +-0.044 at max n. The sealed 0.758 was a HARD-SEGMENT reading (gap
+  0.176 = 4x SE, so real difficulty, not noise). Sealed remains the valid one-shot; 0.934 is the
+  better typical-performance estimate. Both in the §6 bar.
+- Re=10000 PLACEMENT COLLAPSE IS THE ROBUST RESULT: 0.221 at 35 seqs vs base 0.703. The
+  reassuring 0.640 from near-train picks {0,5,10,15} was TRAIN-PROXIMITY INFLATION. Info ceiling
+  confirmed at 35 independent units.
+- eval-sampling noise is SMALL on ret (ratio to GT over the same frames self-normalizes: +-0.005
+  to +-0.044) but LARGE on the blind anchor score (fixed denominator: base recon reads 0.846 at
+  n=70 vs 0.909 at n=8). Every selection rule depends on the noisy quantity — relevant to R5/R6.
+LIMITATION (hard): dt32 files hold 2 triplets/sequence, so 70 is the ceiling; 636 triplets is
+IMPOSSIBLE on this data. Also: TRAINING pool was 8 triplets (vs 636 in-dist, 1272 on the wrong-dt
+data) — see the regeneration case.
+OPEN (needs user): Re=10000 record-dt/stride (my extrapolation from the new dt=1/32 generations
+favours stride 100 over the 80 I used, but only at ~2.5x the reference scatter); Re=10000 timestep
+for regeneration. Test design for 636-triplet runs SETTLED: spread across ALL sequences (independent
+units are set by sequence count, not triplet count — 636 triplets in 2 sequences = 2 units).
