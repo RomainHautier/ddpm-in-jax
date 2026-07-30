@@ -186,3 +186,36 @@ establishes seed-reproducibility of the pipeline).
    native model or a small GT sample. THE UNLOCK IS THE ANCHOR, not the selection rule: every
    failure traces to the obs-fit drifting 18% cold to 31% hot inside its own fitted band. Four
    untouched regimes (1500/3000/4000/5000) are available to test an improved anchor.
+
+## R5 — DEFINITIVE TEST AT ROBUST n (2026-07-30, src/ddpo_ft/transfer_grade_636.py)
+Design: 640 triplets across 16 sequences per regime (independent units are set by SEQUENCE count —
+adjacent triplets are ~98% correlated, so 636-in-2-sequences would be 2 units, not 636). Errors are
+bootstrap-by-sequence. Frozen config throughout (K3[150,100,50]x86, lam3, itemp 0.30): the
+NO-RETUNING transfer baseline. Regimes 1500/3000/4000/5000 unseen by every model and calibration.
+
+ret (+-seq-boot) | place | k* | blind        [band = 0.798-0.858]
+Re=1500  base 0.338+-.003 .751 31 0.680 | indist 0.679+-.009 .877 85 0.740 | re2k 1.097+-.025 .739 94 0.855 ACCEPT | re10k 2.597+-.086 .681 95 1.068
+Re=3000  base 0.269+-.002 .755 31 0.583 | indist 0.463+-.006 .844 43 0.618 | re2k 0.693+-.015 .734 63 0.704 | re10k 1.491+-.043 .670 76 0.866
+Re=4000  base 0.250+-.001 .744 31 0.561 | indist 0.401+-.004 .823 38 0.587 | re2k 0.579+-.011 .716 55 0.662 | re10k 1.216+-.035 .651 70 0.808 ACCEPT
+Re=5000  base 0.235+-.001 .746 31 0.615 | indist 0.365+-.004 .806 36 0.636 | re2k 0.524+-.007 .694 52 0.718 | re10k 1.075+-.023 .642 68 0.873
+
+CORRECTION TO THE EARLIER REFUTATION: the "1 hit in 5" figure was NOISE-INFLATED and is withdrawn.
+At robust n the band scores 3 of 4: correct ACCEPT at Re=1500 (ret 1.097) and Re=4000 (ret 1.216),
+correct REJECT-ALL at Re=3000 (best available 31% under / 49% over — nothing in the [0.75,1.30] bar),
+and one MISS at Re=5000 (rejects ret 1.075, essentially parity, for exceeding the ceiling by 0.015).
+THE CONCLUSION NONETHELESS STANDS, on far cleaner evidence — the same Re=10000 model:
+    at Re=3000: blind 0.866 -> true ret 1.491  (49% over)
+    at Re=5000: blind 0.873 -> true ret 1.075  ( 7% over)
+Nearly identical blind readings, wildly different truth; the 49%-over case reads LOWER than the
+near-perfect one. The absolute value is NOT comparable across regimes and no threshold can separate
+these. (Method note: I was one row from retracting a correct conclusion after three favourable
+points arrived first — the small-n evidence was bad, the conclusion was right.)
+WHAT IS ESTABLISHED: the blind score is a reliable RELATIVE instrument — monotone in dose within
+every regime, 4 of 4, without exception. It RANKS; it does not CALIBRATE.
+TRANSFER PERFORMANCE ITSELF (no retuning, frozen config):
+- Nearby transfer works: Re=2000 model -> Re=1500 gives ret 1.097 (its own regime: 1.155).
+- Far transfer fails on dose in the predicted direction and magnitude (re10k -> re1500: 2.597).
+- Best available model is dose-matched to regime distance: re2k wins at 1500, re10k at 4000/5000.
+- PLACEMENT degrades monotonically with dose in EVERY regime (e.g. Re=5000: .806 -> .694 -> .642),
+  and only the UNDER-dosed in-dist model ever improves placement over the base recon. Energy parity
+  and positional accuracy are in direct tension — a real trade-off, not a tuning artefact.
