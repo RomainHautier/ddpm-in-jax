@@ -326,3 +326,42 @@ KEY RESULTS:
 - THE HYBRID REPAIRS THE LOW-K DAMAGE: up-dosing drops low-k to 0.878-0.884; the kc=6 patch
   restores it to 0.984-0.990 with retention and placement unchanged. It matters most exactly where
   the up-dose is largest.
+
+## ANCHOR LAW VALIDATION BY LEAVE-ONE-REFERENCE-OUT (2026-07-30) — GT-FREE
+Method: measure the four extrapolated quantities on 8 regimes with HR data (500, 1000, 1500, 2000,
+3000, 4000, 5000, 10000), fit each law on 7, predict the 8th. A target's own data never enters its
+own prediction, so this is the honest GT-free test. src/ddpo_ft/anchor_law_loo.py.
+MEASURED TRUTH:
+  Re      500   1000   1500   2000   3000   4000   5000  10000
+  alpha  2.101  1.940  2.004  2.150  1.949  1.831  1.842  2.024   <- NO Re trend
+  p      1.425  1.455  1.622  2.233  1.899  1.918  2.024  6.000   <- 6.0 = fit hit its bound
+  kd      23.3   33.6   47.7   51.8   73.9   80.0   89.5   89.2   <- SATURATES ~90
+  T     .00407 .00421 .00432 .00422 .00454 .00465 .00471 .00460
+LOO ERRORS (extrapolate vs hold fixed at the reference mean):
+  T      2.5% median  vs  6.5% fixed   -> EXTRAPOLATE (2.6x better). CONFIRMS the T(Re) fix.
+  alpha  6.1% median  vs  4.0% fixed   -> DO NOT extrapolate. My hypothesis that alpha/p drift with
+                                          Re is REFUTED: alpha scatters around 1.98 with no trend,
+                                          so a power-law fit adds noise. The current fixed prior is
+                                          the better choice.
+  p     29.3% median  vs 24.5% fixed   -> DO NOT extrapolate; p is also badly determined (the
+                                          Re=10000 fit saturated at its bound).
+  kd    15.8% median, 53.8% at Re=10000 (power law, the current rule)
+GRID CUTOFF (why kd saturates): the steepest spectral fall sits at k~99-101 in EVERY regime tested
+(Re=1000, 5000, 10000) — regime-independent, so it is a property of the 256^2 grid, not physics.
+Beyond Re~5000 the true dissipation scale is not representable in these datasets, so the fitted kd
+pins at ~90 while a power law keeps climbing (predicting 141 at Re=10000 vs 89.2 measured). That
+over-broad kd prior makes the anchor too wide in k => the Re=10000 anchor's 31% hot bias.
+SATURATING kd LAW: kd = kd_max*(1-exp(-(Re/R0)^q)), fitted kd_max=92.3, R0=2047, q=1.05.
+  LOO: median 5.9% vs 15.8% power law; at Re=10000 28.8% vs 53.8%; fitted on all 8 it predicts
+  91.9 at Re=10000 (truth 89.2) where the power law gives 141.2. NOTE kd_max is a property of THIS
+  data resolution (256^2), not of the physics — it would move with grid size.
+EFFECT ON THE ANCHOR (both fixes on, 5 disjoint 4-seq groups on each regime's own test sequences):
+  anchor/GT [6,30):  Re1500 1.035->0.976 | Re3000 1.220->1.122 | Re4000 1.260->1.149 | Re5000 1.153->1.048
+  anchor/GT [10,96): Re1500 1.125->1.093 | Re3000 1.231->1.165 | Re4000 1.238->1.154 | Re5000 1.128->1.034
+  8 of 8 improved. Mean |bias| in the fitted band HALVES: 16.7% -> 8.6%.
+  BUT the CROSS-REGIME SPREAD — the thing that actually breaks set-point portability — narrows only
+  from 0.225 to 0.173 (~23%). Residual +12-15% bias remains at Re=3000/4000 from an unidentified
+  source. So: a real improvement, NOT a solution to portability.
+STATUS: both fixes are OPT-IN (T_RE_SCALING=1, KD_SAT=1); legacy remains the default and all
+existing results stand on it. Turning them on requires re-deriving the set-point band (it is defined
+by healthy models' blind readings, which move with the anchor) and re-running the selection studies.

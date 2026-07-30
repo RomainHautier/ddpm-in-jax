@@ -102,6 +102,24 @@ def build(target_path, re_t, target_seqs, out_path, t_re_scaling=False):
     # TARGET: obs from the DEPLOYMENT data generation
     Ct = coarse_spec(target_path, target_seqs)
     kd_prior = F1000['kd']*(re_t/1000.0)**q
+    # OPT-IN kd saturation law (KD_SAT=1). Validated by leave-one-out over 8 measured regimes
+    # (2026-07-30): median error 5.9% vs 15.8% for the power law, 28.8% vs 53.8% at Re=10000.
+    # Rationale: kd saturates at ~92 because these 256^2 datasets cut off at k~100 — beyond
+    # Re~5000 the true dissipation scale is simply not representable, so a power law that keeps
+    # climbing over-predicts and makes the anchor too broad in k (the Re=10000 anchor's 31% hot
+    # bias). The ceiling is a property of THIS data resolution, not of the physics.
+    if os.environ.get('KD_SAT') == '1':
+        from scipy.optimize import curve_fit as _cf
+        _t = np.load('base_results/anchor_law_loo.npz')
+        _R, _K = _t['Res'].astype(float), _t['kd'].astype(float)
+        _m = np.abs(_R/float(re_t) - 1.0) > 0.1          # hold the target regime out
+        _sat = lambda R, kmax, R0, qq: kmax*(1-np.exp(-(R/R0)**qq))
+        _o, _ = _cf(_sat, _R[_m], _K[_m], p0=[90.,1000.,0.7],
+                    bounds=([20,50,0.05],[200,1e5,3]), maxfev=60000)
+        kd_prior = float(_sat(float(re_t), *_o))
+        print(f"  kd SATURATING law (target held out): kd_max={_o[0]:.1f} Re0={_o[1]:.0f} "
+              f"q={_o[2]:.3f} -> kd_prior {kd_prior:.1f} (power law gave "
+              f"{F1000['kd']*(re_t/1000.0)**q:.1f})", flush=True)
     ft = obs_fit(Ct[KOBS]/T, prior, kd_prior)
     lg = np.full(KMAX,-40.0); kk = np.arange(KF+1,KMAX)
     lg[kk] = model(kk.astype(float), ft['logA'], ft['alpha'], ft['kd'], ft['p'])
