@@ -289,3 +289,40 @@ without touching any deployment target's GT. This is probably the highest-value 
 NOTE ON THE SET-POINT: it is defined by healthy models' blind readings, so it MOVES whenever the
 anchor changes. Any anchor improvement requires re-deriving the band and re-running the selection
 studies, or band and scores end up on different instruments.
+
+## THE THREE-STAGE ADAPTATION LOOP — COMPLETE RESULT (2026-07-30)
+Stage 1 frozen config (no adaptation) | Stage 2 GT-free config choice from LR only | Stage 3 grade
+the choice. All grading: 640 triplets across 16 sequences, bootstrap-by-sequence. Legacy anchors
+(no T(Re), no alpha/p tuning). Bar = [0.75,1.30].
+
+regime  model      frozen -> ADAPTED (config)        place frozen->adapted   k* frozen->adapted
+Re=1500 in-dist    0.679 -> 1.109  (K3->K4)          .877 -> .836            85 -> 95
+Re=1500 Re=2000    1.097 -> (kept K3)                .739                    94
+Re=1500 Re=10000   2.597 -> 1.209  (K3->K2)          .681 -> .782            95 -> 95
+Re=3000 in-dist    0.463 -> 0.712  (K3->K4)          .844 -> .804            43 -> 66
+Re=3000 Re=2000    0.693 -> 1.203  (K3->K4)          .734 -> .647            63 -> 72
+Re=3000 Re=10000   1.491 -> (kept K3)  <- THE MISS   .670                    76
+Re=4000 in-dist    0.401 -> 0.604  (K3->K4)          .823 -> .782            38 -> 58
+Re=4000 Re=2000    0.579 -> 0.980  (K3->K4)          .716 -> .631            55 -> 65
+Re=4000 Re=10000   1.216 -> (kept K3)                .651                    70
+Re=5000 in-dist    0.365 -> 0.544  (K3->K4)          .806 -> .764            36 -> 53
+Re=5000 Re=2000    0.524 -> 0.878  (K3->K4)          .694 -> .604            52 -> 62
+Re=5000 Re=10000   1.075 -> (kept K3)                .642                    68
+
+SCORECARD: ALL 8 changed picks IMPROVED |ret-1| (8/8). Of the 4 kept, 3 were already correct
+(1.097, 1.216, 1.075) and 1 was the miss (Re=3000 Re=10000 kept 1.491 when K2 gives 0.831).
+=> 11 of 12 decisions correct or improving, using ONLY target low-res data.
+KEY RESULTS:
+- ONE MODEL COVERS A 3.3x Re RANGE: the Re=2000 model, blind-adapted, gives 1.097/1.203/0.980/0.878
+  at Re=1500/3000/4000/5000 — ALL inside the bar. Un-adapted it fails the bar at 3 of 4.
+- DOSE CORRECTION WORKS BOTH WAYS: 2.597 -> 1.209 (de-dose) and 0.579 -> 0.980 (up-dose).
+- REACH LIMIT IS REAL AND PREDICTED: the in-dist model's ladder never reached the band at
+  Re=3000/4000/5000, and indeed adaptation left it at 0.712/0.604/0.544 — below the bar. The blind
+  signal correctly said "retrain, don't retune" BEFORE any GT was seen. A deeper chain buys a
+  roughly constant +0.20..0.43 of retention, enough at 1.5x the training Re, insufficient beyond.
+- PLACEMENT IS THE PRICE, and it is systematic: every K3->K4 up-dose cost 0.040-0.090 of placement
+  (.041/.087/.040/.085/.090/.042) while the single K3->K2 de-dose GAINED 0.101. Placement tracks
+  dose inversely, in both directions, in every regime.
+- THE HYBRID REPAIRS THE LOW-K DAMAGE: up-dosing drops low-k to 0.878-0.884; the kc=6 patch
+  restores it to 0.984-0.990 with retention and placement unchanged. It matters most exactly where
+  the up-dose is largest.
