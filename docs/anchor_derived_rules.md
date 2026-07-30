@@ -265,3 +265,27 @@ only, no GT. Note the stored fingerprint would then reference the raw file; veri
 need the same source to compare against.
 MEASURED anchor/GT bias in [6,30), 5 disjoint groups (for reference when this resumes):
   re1500 1.032+-0.048 | re2000(old) 0.870+-0.083 | re3000 1.213+-0.052 | re10000(old) 1.313+-0.132
+
+### NEXT RESEARCH PHASE — ANCHOR ACCURACY ACROSS Re, TUNED WITHOUT TARGET GT (user directive)
+CONSTRAINT: every correction must be derivable from (a) the REFERENCE regimes' full data and
+(b) the TARGET's low-res observations. Target GT may be used to REPORT accuracy after the fact,
+never to fit. (The T(Re) law already satisfies this: it is fitted on Re=500/1000 and extrapolated;
+target GT was used only to verify it predicts T to 4.4%.)
+KNOWN ERROR SOURCES, in order of measured size:
+ 1. T(Re) — the coarse->fine transfer is Re-dependent (+15% Re=500..5000). Fix implemented, opt-in.
+    Explains re1500's bias fully, ~half of re3000/re10000.
+ 2. Residual bias at high Re beyond T (~10% at re3000, ~20% at re10000) — untested cause. Prime
+    suspects: the alpha/p shape priors are held FIXED at the reference average while the true
+    spectral shape drifts with Re (kd is already extrapolated; alpha/p are not), and the LOO
+    correction is interpolated over only 3 band knots.
+ 3. Small-sample anchor fits for dt32-based anchors: 16 LR samples vs 136. Fix: build from the RAW
+    fine-dt file's LR (the anchor is a purely SPATIAL statistic, so dt is irrelevant) -> 1280
+    samples. Likely explains re2000's cold reading, which T(Re) cannot (wrong sign).
+GT-FREE VALIDATION STRATEGY: leave-one-reference-out. With only two references (500, 1000) the LOO
+is barely determined — the extrapolation exponents rest on a 2-point fit. GENERATING ADDITIONAL
+REFERENCE REGIMES (e.g. Re=750, 1250, 2500 with the new generator) would let every extrapolated
+quantity (T, kd, alpha, p) be fitted on >2 points and validated by holding one out, entirely
+without touching any deployment target's GT. This is probably the highest-value next data spend.
+NOTE ON THE SET-POINT: it is defined by healthy models' blind readings, so it MOVES whenever the
+anchor changes. Any anchor improvement requires re-deriving the band and re-running the selection
+studies, or band and scores end up on different instruments.
