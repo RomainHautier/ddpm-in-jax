@@ -746,3 +746,21 @@ toward GT). What failed is one number, for a reason now measured and fixable bli
 - Set-point reformulated: obs-fit factor-1~1 by construction x in-dist factor-2 0.85 -> band
   [0.80,0.85] on the anchor's source pool. Blind check @re2000: selects K2 (GT-best, 1.230) with
   zero GT. Guards (resolved-vs-LR, resid-vs-floor) non-discriminative here; anchor score selects.
+
+## 2026-07-30 — overnight: R6 verdict, R5 refuted out-of-sample, Re=4000/5000 generated
+- R6 Re=2000: early stop FIRED at iter 349 (0.827->0.834 in band). Graded on the same decorrelated
+  picks as the 600-iter original: ret 1.138 vs 1.160 (dRet 0.022, inside +-0.04 noise), |ret-1|
+  0.138 vs 0.160 (marginally BETTER), place 0.812 vs 0.817, lowk/k* identical. => 42% training
+  compute saved for indistinguishable quality.
+- R6 Re=10000: stop never fired — STRUCTURAL, not a failure: the band's lower edge (0.798) was
+  measured from this very regime's healthy model, so its run can only enter the band at the end
+  (touched 0.798 at iter 549, closed 0.794). A pooled band makes each regime stop at the WEAKEST
+  regime's healthy level -> asymmetric savings. Its ckpts are BITWISE IDENTICAL to the original
+  run's => the anchor monitor is provably read-only and the pipeline is seed-reproducible.
+- BUGS: (1) post-loop save relabelled early-stopped runs as iter0599 (fixed 14c930e);
+  (2) the overnight quarantine step then moved re10000's LEGITIMATE iter0599 out of its dir —
+  restored and verified (iter field 599, params != iter0549). Quarantine must be conditional.
+- NEW DATA: gen_fnons_re4000/re5000_kf_1024to256_20seq.npy (20x320). Pre-flights PASS: lag-1
+  0.973/0.978 (dt-compatible, no stride needed); seq independence max 0.218/0.233; std 5.10/4.96.
+  Four untouched regimes now available (1500, 3000, 4000, 5000) — enough to test whether a
+  better-behaved anchor makes the set-point portable.
