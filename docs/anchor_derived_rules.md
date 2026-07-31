@@ -422,3 +422,33 @@ REVISED STATUS:
   - Before any of these laws is trusted: either regenerate the reference regimes through ONE
     pipeline, or refit with an explicit family indicator so the Re trend is not contaminated.
   - p's bound-pinned fit at Re=10000 must be excluded or the bound raised, independent of all above.
+
+## THE LOO STUDY ASSUMED AN INFORMATION SET WE DO NOT HAVE (2026-07-31, user-caught)
+The deployed anchor has TWO references: Re=500 and Re=1000. Those are the only regimes whose GT we
+are entitled to, and EVERY anchor behind EVERY result was extrapolated from those two points. The
+leave-one-out study measured the four quantities at EIGHT regimes and fitted each law on seven.
+Holding the target out stops self-prediction, but it silently assumes GT-calibrated references at
+1500/2000/3000/4000/5000/10000 — which we do not own. It therefore answers "would extrapolation work
+with a seven-regime library?", NOT "how good is the anchor we deployed?". Framing it as GT-free
+validation was an error. COROLLARY, and the user's second point: the extrapolated anchor was never
+judged at the time — we extrapolated from two regimes and rolled with it. That is a fact about every
+result already produced.
+
+WHAT CAN HONESTLY BE MEASURED — an AUDIT (target GT used only to score, never to tune):
+run the real 2-reference procedure, then compare to the target's truth after the fact.
+  target |  kd pred -> true    err |  T err  | alpha err | p err
+  1500   |  41.6 -> 47.7    -12.9% |  -4.1%  |   +0.8%   | -11.2%
+  2000   |  48.3 -> 51.8     -6.7% |  -1.9%  |   -6.0%   | -35.5%
+  3000   |  59.8 -> 73.9    -19.0% |  -8.8%  |   +3.7%   | -24.2%
+  4000   |  69.6 -> 80.0    -13.0% | -11.0%  |  +10.3%   | -24.9%
+  5000   |  78.3 -> 89.5    -12.5% | -12.1%  |   +9.7%   | -28.9%
+  10000  | 112.7 -> 89.2    +26.4% | -10.0%  |   -0.2%   | -76.0%
+  median |err|:  kd 12.9%   T 9.4%   alpha 4.9%   p 26.9%
+THE ERROR IS SYSTEMATIC: the 2-ref law UNDER-predicts kd, T and p at every OOD regime, same sign
+every time. Only Re=10000 flips kd to +26% (grid ceiling). So the deployed anchors were consistently
+TOO NARROW IN K and TOO LOW IN THE OBSERVED BAND. Useful as a known-direction bias; NOT retrofittable
+into the procedure that produced the existing results.
+CAVEATS: (a) for 1500/3000/4000/5000 the "truth" is itself fnons-generated data, so the audit's
+reference is generator-dependent (see the family confound above); (b) the 8-regime laws are not a
+free improvement — they are a proposal to BUY GT at more reference regimes, a cost decision. Until
+paid, the deployed procedure stays 2-reference, and both T_RE_SCALING and KD_SAT stay OFF.
