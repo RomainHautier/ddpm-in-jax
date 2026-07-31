@@ -490,3 +490,23 @@ transfer-test and max-n numbers digit for digit (where batch size matches — se
 5. SAMPLING-NOISE SENSITIVITY. The same model/frames/config gave resid 12.6 (bs=8) vs 14.9 (bs=16)
    — an 18% swing from the noise draw alone — while ret moved 0.7% and place 0.1%. Bootstrap-over-
    sequences does NOT capture this. Residual differences below ~20% are not findings.
+
+## TWO DIAGNOSTICS CLOSED (2026-07-31, both refuting earlier claims of mine)
+SAMPLING NOISE IS NOT THE ISSUE; BATCH SIZE IS. 5 seeds, same model/frames/config (Re=2000, 70
+triplets): ret sd/mean 0.24%, place 0.23%, resid 0.43%. So my attribution of the 12.6-vs-14.9
+residual gap to "noise draw" was WRONG. Direct test: bs=8 -> resid 12.27, bs=16 -> 14.50 (18%),
+while ret moves 1.156->1.164 (0.7%); chunking the residual call makes NO difference (0.0000).
+Cause is almost certainly XLA picking different layouts per batch shape, amplified by the residual's
+derivative operators. RULE: residuals compare only at MATCHED BATCH SIZE. The whole decomposition is
+bs=16 and internally consistent; maxn_regrade's 12.6 was bs=8.
+
+THE "Re=2000 CALIBRATION FAILURE" WAS MY POOL BUG — RETRACTED. The blind score must be computed on
+the ANCHOR'S OWN SOURCE SEQUENCES (fixed denominator => it does not cancel and is pool-dependent).
+I scored it on the test pool. Corrected (src/ddpo_ft/blind_picks_source_pool.py):
+  base recon @ Re=2000 source pool = 0.672 (NOT the 0.846 I reported) — well below the band.
+  Re=2000  in-dist  -> K4 blind 0.822 IN BAND: ret 0.750 -> 1.213  (improved)
+  Re=2000  Re=10000 -> K2 blind 0.835 IN BAND: ret 2.672 -> 1.282  (large correction)
+  Re=10000 Re=2000  -> K4 blind 0.816 IN BAND: ret 0.465 -> 0.797  (BEST rung of six)
+  Re=10000 in-dist  -> K4 blind 0.639 BELOW band: ret 0.309 -> 0.467 (correctly flagged out of reach)
+4/4 correct or improving, bidirectional. The cross-regime non-calibration (0.866@Re3000 -> 1.491 true
+vs 0.873@Re5000 -> 1.075 true) is unaffected: that comparison uses no pool choice.
