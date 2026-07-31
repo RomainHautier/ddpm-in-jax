@@ -510,3 +510,42 @@ I scored it on the test pool. Corrected (src/ddpo_ft/blind_picks_source_pool.py)
   Re=10000 in-dist  -> K4 blind 0.639 BELOW band: ret 0.309 -> 0.467 (correctly flagged out of reach)
 4/4 correct or improving, bidirectional. The cross-regime non-calibration (0.866@Re3000 -> 1.491 true
 vs 0.873@Re5000 -> 1.075 true) is unaffected: that comparison uses no pool choice.
+
+## POTENTIAL WORK — ranked, with what each buys and what it costs (2026-07-31)
+
+1. REGENERATE Re=2000 AND Re=10000 AT record-dt = 1/32.  [highest value]
+   WHY: both models were trained on EIGHT triplets. The 2026-07 40-seed files record ~80x finer than
+   the training convention, so the only dt-correct derivative is a stride-80 subsample yielding 2
+   triplets/sequence (70 total, the evaluation ceiling too). A correct generation gives ~318
+   triplets/sequence, i.e. ~1272 for a 4-sequence training pool — a 160x larger pool — and lifts the
+   evaluation ceiling from 70 triplets to the same 640 the generated regimes enjoy.
+   NOTE ON "dt=1/32 IS UNSTABLE": record-dt and solver dt are DIFFERENT things. record-dt=0.03125 is
+   only the sampling interval and was ALREADY used for the Re=1500/3000/4000/5000 generations
+   (gen_re4000.log/gen_re5000.log). The solver dt is separate and small (Re=4000 -> 2.5e-5,
+   Re=5000 -> 2e-5, i.e. ~0.1/Re); the integrator is Crank-Nicolson on the viscous term with EXPLICIT
+   advection, so the limit is CFL on the nonlinear term, not the recording rate. Stability probe in
+   progress for Re=2000 (5e-5) and Re=10000 (1e-5 and 2e-5).
+   COST: the Re=5000 run was 3h51m wall for 20 trajectories x 320 frames at 1024^2 on 4 devices.
+   Re=10000 needs roughly half the timestep, so budget ~8h per 20-trajectory set.
+   BLOCKER: user confirmation of the Re=10000 record-dt (measurement favours stride 100 over the 80
+   currently used — suggestive at ~2.5x reference scatter, not conclusive).
+
+2. SINGLE-PIPELINE REFERENCE LIBRARY.
+   WHY: Re 500/1000/2000/10000 are direct simulations; Re 1500/3000/4000/5000 come from the
+   1024->256 generator. The tail-sensitive fit parameters carry a generator offset (kd 1.24x,
+   p 0.66x) while T and alpha do not, so ANY law fitted across the mixed set is confounded — this is
+   what killed the kd saturation result. Regenerating the direct-sim regimes through the same
+   pipeline (or adding a family term to the fits) is a precondition for trusting any extrapolation law.
+
+3. MORE GT-CALIBRATED REFERENCE REGIMES — a cost decision, not a free win.
+   The anchor extrapolates from TWO references. Improving it at all requires buying high-resolution
+   ground truth at more regimes. The leave-one-out study showed the laws work well GIVEN seven
+   references; we own two. Nothing about the anchor's accuracy improves until that is paid for.
+
+4. SMALLER / DEFERRED:
+   - The frozen residual Re-law is wrong (empirical exponent 1.824 vs 2.705, errors -36% to +490%);
+     harmless where it is used (one-sided hinge) but should be refitted or removed.
+   - Residuals are only comparable at MATCHED BATCH SIZE (bs8 12.27 vs bs16 14.50 on identical input).
+     Pin the batch size in any harness that reports them.
+   - Placement's abrupt collapse between Re=5000 and Re=10000 is established but its mechanism is
+     confounded with that dataset's weak tail; item 1 would disambiguate it.
