@@ -365,3 +365,60 @@ EFFECT ON THE ANCHOR (both fixes on, 5 disjoint 4-seq groups on each regime's ow
 STATUS: both fixes are OPT-IN (T_RE_SCALING=1, KD_SAT=1); legacy remains the default and all
 existing results stand on it. Turning them on requires re-deriving the set-point band (it is defined
 by healthy models' blind readings, which move with the anchor) and re-running the selection studies.
+
+## ROBUSTNESS OF THE LOO VERDICTS — three of four do NOT survive (2026-07-31)
+(src/ddpo_ft/anchor_law_robustness.py; prompted by the user flagging the Re=10000 data as suspect)
+
+WHAT "VALIDATED" MEANT, STATED PLAINLY. The four quantities were measured from the TRUE high-res
+spectra of 8 datasets — that is ground truth, of the REFERENCE regimes. The test holds one regime
+out, so a target's own GT never enters its own prediction. "GT-free" here means GT-free OF THE
+TARGET, which is what the anchor procedure has always assumed (references are GT-calibrated: 2 of
+them before, 8 now). Two leaks, declared: (a) the saturating FORM for kd was chosen after seeing
+all 8 kd values including held-out ones — LOO refits parameters, not the form, so 5.9% is
+optimistic; (b) the 16.7%->8.6% bias table is measured against TARGET GT — it is after-the-fact
+verification that the fix helped, not a signal used to build it.
+
+CHALLENGE 1 — refit everything with Re=10000 dropped:
+  quantity | with Re=10000        | without Re=10000      | verdict
+  T        | LOO 2.5% vs fix 6.5% | LOO 1.4% vs fix 4.1%  | SURVIVES (exponent +0.051 -> +0.065)
+  alpha    | 6.1% vs 4.0% "don't" | 3.0% vs 4.2% "do"     | FLIPS — the refutation was one point
+  p        | 29.3% vs 24.5%"don't"| 6.1% vs 24.2% "do"    | FLIPS — and p(Re=10000)=6.000 PINNED
+                                                            at its fit bound; a broken fit, which
+                                                            should have been caught regardless.
+  kd       | sat 5.9% < power 11.6%| power 6.3% < sat 7.9%| FLIPS — the saturation IS that point;
+                                                            sat kd_max moves 92.3 -> 134.8.
+  => Only T(Re) is robust to the Re=10000 data being bad. The alpha/p refutation and the kd
+  saturation law both rest on it. RETRACTED accordingly.
+
+CHALLENGE 2 — the grid-cutoff argument, tested independently on all 8 regimes:
+  steepest log-log fall:  Re500 k=123(-19) | 1000 k=103(-14) | 1500 k=103(-12) | 2000 k=101(-31)
+                          3000 k=103(-10) | 4000 k=103(-9.5) | 5000 k=103(-8.9) | 10000 k=101(-50)
+  The cliff LOCATION is regime-independent at k~101-103 (Re=500's 123 is noise floor: E(120)/E(10)
+  = 3e-7). So a representable CEILING near k~102 is real and any extrapolation must respect it —
+  but the cliff exists at Re=500 too, where kd=23, so it is NOT evidence of saturation ONSET. It
+  bounds kd; it does not date the bend. The kd saturation law remains unsupported.
+
+CHALLENGE 3 — the real confound: the reference library MIXES TWO GENERATION PIPELINES.
+  real sims (kf_*_seed: Re 500/1000/2000/10000) vs fnons 1024->256 generated (Re 1500/3000/4000/5000).
+  The cliff DEPTH splits by family, not by Re: generated files fall shallowly (-9 to -12, energy at
+  k=120 up to 2.3e-3 of E(10)); real sims fall steeply (-14 to -50). Re=10000's tail (2.5e-4) is
+  WEAKER than Re=5000's (2.3e-3) despite 2x the Re — physically backwards, independent corroboration
+  that the Re=10000 file is off.
+  Family offsets on the 8-point law residuals:  T 1.04x | alpha 0.94x | kd 1.24x | p 0.66x
+  i.e. the two tail-SENSITIVE parameters carry a large family offset and the two well-behaved ones
+  do not. Within-family fits are far cleaner (in-sample median |err|):
+      real: T 0.7%  kd 5.9%  p 12.5%   (exponents +0.039 / +0.446 / +0.511)
+      gen:  T 0.1%  kd 2.0%  p  1.2%   (exponents +0.073 / +0.522 / +0.179)
+  gen-only kd LOO (3 fit / 1 predict): 18.9 / 7.1 / 2.3 / 4.3% — a plain power law, no saturation
+  needed to Re=5000. CONCLUSION: the apparent kd saturation is the joint artefact of one suspect
+  regime and a 1.24x family offset that lifts the generated regimes' kd, flattening the top of the
+  trend. Even T's exponent is family-contaminated (+0.039 real vs +0.073 gen vs +0.051 blended) —
+  a ~40% uncertainty on the SIZE of the T correction, though its sign and existence hold in both.
+
+REVISED STATUS:
+  - T_RE_SCALING: keep as a real effect; treat the exponent as uncertain to ~40% until the
+    reference library is single-pipeline. Still opt-in.
+  - KD_SAT: DO NOT ADOPT. Unsupported once Re=10000 is removed or the family offset is modelled.
+  - Before any of these laws is trusted: either regenerate the reference regimes through ONE
+    pipeline, or refit with an explicit family indicator so the Re trend is not contaminated.
+  - p's bound-pinned fit at Re=10000 must be excluded or the bound raised, independent of all above.
