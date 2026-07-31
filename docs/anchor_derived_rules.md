@@ -549,3 +549,24 @@ vs 0.873@Re5000 -> 1.075 true) is unaffected: that comparison uses no pool choic
      Pin the batch size in any harness that reports them.
    - Placement's abrupt collapse between Re=5000 and Re=10000 is established but its mechanism is
      confounded with that dataset's weak tail; item 1 would disambiguate it.
+
+## THE GENERATOR CONFOUND, NOW MEASURED DIRECTLY (2026-07-31)
+Regenerating Re=2000 through the fnons 1024->256 pipeline puts the SAME Reynolds number in BOTH
+generation families, so the generator offset can be measured at fixed Re instead of inferred from
+fit residuals across different regimes. Controlled comparison:
+                          alpha      p     kd        T   cliff k  slope
+  generated (1024->256)   1.953  1.684   56.0  0.00438      103   -11.4
+  direct sim (40seed)     2.001  1.957   45.0  0.00422      101   -29.3
+  ratio generated/direct  0.976  0.861  1.242    1.037
+Compare the values inferred ACROSS regimes from the 8-point fit residuals: kd 1.24x, T 1.04x,
+alpha 0.94x, p 0.66x. **kd and T match to within 1%.** The confound is therefore real, generator-
+driven, and of the size previously estimated — it is not an artefact of the residual analysis. Any
+law fitted across the mixed library carries a ~24% kd bias, which is precisely what corrupted the
+kd saturation fit.
+Also note the cliff LOCATION is identical (103 vs 101 — the 256^2 grid) while its DEPTH differs by
+2.6x (-11.4 vs -29.3). Location is the grid; depth is the generator.
+CONSEQUENCE FOR EXISTING Re=2000 RESULTS: the regenerated flow carries 3.0x the energy above k=64
+and 8.4x above k=96 relative to the old 40seed file. It is a statistically different flow, so every
+Re=2000 number in this project is tied to the file it was measured on and must be re-established on
+the new data. The 1024-DNS generation resolves the small scales before downsampling, so it is the
+more faithful of the two at high k.
