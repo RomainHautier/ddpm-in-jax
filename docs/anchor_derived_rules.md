@@ -452,3 +452,41 @@ CAVEATS: (a) for 1500/3000/4000/5000 the "truth" is itself fnons-generated data,
 reference is generator-dependent (see the family confound above); (b) the 8-regime laws are not a
 free improvement — they are a proposal to BUY GT at more reference regimes, a cost decision. Until
 paid, the deployed procedure stays 2-reference, and both T_RE_SCALING and KD_SAT stay OFF.
+
+## CROSS-REGIME DECOMPOSITION — frozen config, 7 regimes x 4 models (2026-07-31)
+src/ddpo_ft/crossregime_decomposition.py. 640 triplets/16 seqs on the generated regimes, 70/35 on
+the dt32 files; bootstrap BY SEQUENCE. VALIDATION: all 28 cells reproduce the previously published
+transfer-test and max-n numbers digit for digit (where batch size matches — see the noise caveat).
+
+1. THE PDE RESIDUAL IS A ONE-SIDED DIAGNOSTIC, NOT A CORRECTNESS CHECK.
+   It must be read against the GT's own residual, which rises steeply with Re (15.9 -> 877.8 from
+   Re=1000 to 10000). Among UNDER-restored fields it is nearly blind: at Re=3000 the in-dist model
+   (ret 0.463) and the Re=2000 model (ret 0.693) both read 0.11x GT; at Re=4000 (ret 0.401 vs 0.579)
+   both read 0.07x; at Re=5000 (0.365 vs 0.524) both read 0.05x. Three independent confirmations.
+   It only speaks once a model reaches/exceeds the correct dose (Re=10000 model at Re=1000: 2.02x).
+2. MODELS OVER-FILL THE BOTTOM OF THE REWARD BAND WHILE THE TOP COLLAPSES.
+   Re=3000, Re=10000 model, energy/GT by band: 24-32 1.06 | 32-48 1.60 | 48-64 1.72 | 64-80 0.74 |
+   80-96 0.24 | 96-128 0.07. Retention reads 1.491 because 32-64 dominates the integral. So
+   "over-restoring" and "4x too smooth in the PDE sense" are simultaneously true: the reward band
+   stops at k=96 and the physics is decided above it.
+3. THE PLACEMENT CEILING IS NOT ABOUT DOSE MAGNITUDE — CORRECTED.
+   Previously attributed to DDPO "removing the base's hedge". But at Re=10000 EVERY model collapses,
+   including the in-dist one which restores almost nothing: base ret 0.211 place 0.703 | in-dist
+   0.309/0.327 | Re=2000 0.465/0.249 | Re=10000 0.941/0.221. At Re<=5000 the FIRST increment of
+   restored energy RAISES placement (Re=5000: base .746 -> in-dist .806) before further dose lowers
+   it. Correct statement: below the ceiling the first increment is placed correctly; above it, even
+   the first increment is misplaced. Temporal pre-flight passes on all files (Re=10000 lag-1 0.980,
+   in band), so frame spacing does not explain it. Confounded with that dataset's known weak tail.
+4. THE FROZEN RESIDUAL Re-LAW IS WRONG AND SHOULD NOT BE QUOTED.
+   residual_ref = 10.218*(Re/1000)^2.705 vs measured GT floor:
+     Re     1000   1500   2000   3000   4000   5000   10000
+     meas   15.9   42.5   52.8  170.6  307.2  449.8   877.8
+     law    10.2   30.6   66.6  199.5  434.4  794.5  5180.4
+     err    -36%   -28%   +26%   +17%   +41%   +77%   +490%
+   EMPIRICAL exponent is 1.824, not 2.705 (prefactor 18.9 at Re=1000) — and even that leaves 25%
+   scatter, because the true floor SATURATES for the same 256^2 grid reason that caps kd. This is
+   independent corroboration of the grid ceiling from a quantity not involved in the kd fit.
+   Impact is limited: residual_ref feeds a one-sided hinge, so over-prediction never binds.
+5. SAMPLING-NOISE SENSITIVITY. The same model/frames/config gave resid 12.6 (bs=8) vs 14.9 (bs=16)
+   — an 18% swing from the noise draw alone — while ret moved 0.7% and place 0.1%. Bootstrap-over-
+   sequences does NOT capture this. Residual differences below ~20% are not findings.
