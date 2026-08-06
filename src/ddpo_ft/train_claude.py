@@ -218,13 +218,23 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
          pde_two_sided=False, fresh_opt=False,
-         anchor_monitor_every=0, anchor_band=None, anchor_patience=2):
+         anchor_monitor_every=0, anchor_band=None, anchor_patience=2,
+         gt_override=None, train_seqs_override=None):
     import json
     import pickle
     import jax
     from src.rewards import make_spectrum_fn
 
-    cfg = RE_CFG[re]
+    cfg = dict(RE_CFG[re])            # copy: never mutate the frozen table
+    # Data overrides. The PHYSICS still comes from `re` (nu = 1/re); only the file and the
+    # training sequences move. Lets a regenerated dataset be used without editing RE_CFG,
+    # so every earlier run stays byte-reproducible from the table.
+    if gt_override:
+        cfg['gt'] = gt_override
+    if train_seqs_override:
+        cfg['train_seqs'] = [int(x) for x in str(train_seqs_override).split(',')]
+    if gt_override or train_seqs_override:
+        print(f"    DATA OVERRIDE: gt={cfg['gt']} train_seqs={cfg['train_seqs']}", flush=True)
     save_dir = save_dir or (f"monitoring/ddpo_re{re}{'_ddiminit' if base_ddim_init else ''}"
                             f"{'_ddimpolicy' if sampler == 'ddim' else ''}"
                             f"{f'_k{len(chain_starts)}chain' if chain_starts else ''}_ckpts")
@@ -568,6 +578,10 @@ if __name__ == "__main__":
     ap.add_argument("--anchor_band", type=float, nargs=2, default=None, metavar=("LO", "HI"),
                     help="R6 early-stop band for the anchor score; stop once inside it for "
                          "--anchor_patience consecutive checks. Requires --anchor_monitor_every.")
+    ap.add_argument("--gt_override", type=str, default=None,
+                    help="use this GT file instead of RE_CFG[re]['gt'] (physics still from --re)")
+    ap.add_argument("--train_seqs_override", type=str, default=None,
+                    help="comma-separated training sequence indices, overriding RE_CFG")
     ap.add_argument("--anchor_patience", type=int, default=2,
                     help="consecutive in-band checks required to stop (guards the ~0.02 check noise)")
     ap.add_argument("--clip_eps", type=float, default=0.2,

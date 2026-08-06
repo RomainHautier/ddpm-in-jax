@@ -599,3 +599,36 @@ MEASURED (base_results/family_params_singlepipeline.npz):
 STATUS: this supersedes the mixed-library law analysis for the generated regimes. The 2-reference
 DEPLOYMENT procedure is unchanged (we still own GT at Re=500/1000 only); what changed is that the
 research-time reference library is now internally consistent.
+
+## R6 SET-POINT RE-CALIBRATED NON-CIRCULARLY AT Re=1000 (2026-08-06)
+The band [0.798, 0.858] was taken from the two OOD models' OWN blind readings — calibrated on the
+models it judges. Replaced here by a reading from a model whose health is verified against real GT.
+Run: 8 seqs (20-27, 2544 triplets, ~48 independent states) vs the old 2 seqs (~12 states); obs-fit
+anchor (kd fit 33.9 vs measured 33.6); temp 2.0 from R3.1 blind (D=0.425); NO early stop, 600 iters.
+
+VAL (seqs 32-35) RETENTION BY CHECKPOINT, and the blind score on the TRAIN pool:
+  iter    49    99   149   199   249   299   349   399   449   499   549   599
+  val ret .774  .866 .949  .912  .895  .905  .941  .900  .992 1.019 1.099 1.024
+  place   .897  .891 .895  .893  .886  .863  .880  .875  .866  .874  .871  .879
+  blind   .760  .750 .801  .786  .774  .775  .778  .754  .768  .782  .789  .785
+  (base, no finetune: val ret 0.450, place 0.911, k*=35, blind 0.682)
+
+1. SET-POINT = 0.768 (blind score at the GT optimum, iter 449, val ret 0.992).
+   The inherited band [0.798, 0.858] does NOT contain it. Its lower edge 0.798 corresponds to
+   iter 149 — val ret 0.949 and 300 iterations EARLIER than the GT optimum. So R6 as configured
+   stops early. The whole blind trajectory spans only 0.750-0.801, i.e. the signal's DYNAMIC RANGE
+   (0.05) is barely twice its noise (+-0.02) — a band of width 0.06 is nearly the entire range.
+2. TRAIN AND VAL OPTIMA DIFFER: train 149 (ret 1.006) vs val 449 (ret 0.992), 300 iterations apart.
+   Grading only on the training pool would have stopped at 149. This is why both were graded.
+3. R3.2's BLIND PICK = iter 149, val ret 0.949 — NOT the GT optimum (449, 0.992). It is not a
+   disaster (0.949 is inside any reasonable bar) but the rule systematically picks early.
+4. TRAINING PAST THE OPTIMUM IS NOT FREE: placement decays 0.897 -> 0.863-0.879 while retention
+   overshoots to 1.099 by iter 549. The base's placement is 0.911; every finetuned checkpoint is
+   below it. Over-training trades structure for excess energy.
+5. THE POOL WORKS: k* jumps 35 -> 95 by iter 49 and stays; low-k stays 0.96-0.99. Retention reaches
+   0.992 vs the old in-dist run's 0.893-1.023 band across four temps. No sign the 48-state pool
+   overfits in the damaging sense — but train/val optima differing by 300 iters shows the training
+   pool alone cannot locate the optimum.
+CONSEQUENCE FOR THE OOD RUNS: do NOT reuse [0.798, 0.858]. Either (a) target 0.768 with a tight
+band, accepting that the blind signal's range is only ~2x its noise, or (b) drop early stopping,
+run 600, and select post-hoc by R3.2 — which lands at 0.949 val retention, i.e. a known ~5% cost.
