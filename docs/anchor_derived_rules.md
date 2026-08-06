@@ -570,3 +570,32 @@ and 8.4x above k=96 relative to the old 40seed file. It is a statistically diffe
 Re=2000 number in this project is tied to the file it was measured on and must be re-established on
 the new data. The 1024-DNS generation resolves the small scales before downsampling, so it is the
 more faithful of the two at high k.
+
+## SINGLE-PIPELINE REFERENCE FAMILY — the generator confound is now REMOVED (2026-08-06)
+Re=6000/7000/8000 generated (same fnons convention as 1500-5000 and the regenerated 2000/10000),
+giving NINE regimes from ONE generator. Every file passed the temporal pre-flight (lag-1 0.953-0.971,
+no monotone Re-trend — my prediction that it would fall below 0.95 at Re=8000 was WRONG, the scatter
+between regimes is ~+-0.01) and every tail is monotone in Re. Cliff at k=103 in all nine (grid).
+MEASURED (base_results/family_params_singlepipeline.npz):
+  Re     1500   2000   3000   4000   5000   6000   7000   8000  10000
+  alpha 2.004  1.953  1.949  1.831  1.842  1.829  1.812  1.794  1.758
+  p     1.622  1.684  1.899  1.918  2.024  2.150  2.396  2.531  2.680
+  kd     47.7   56.0   73.9   80.0   89.5   97.9  106.5  112.5  120.1
+  T    .00432 .00438 .00454 .00465 .00471 .00478 .00487 .00491 .00500
+
+1. kd DOES NOT SATURATE. A clean power law fits all nine to within +-6% (exponent 0.491; per-regime
+   errors +3/+2/-6/-0/-0/-0/-1/-0/+4%). kd reaches 120.1 at Re=10000 — well ABOVE the 92 ceiling the
+   old mixed-library fit produced, and above the k~103 cliff. The apparent saturation was ENTIRELY
+   the generator confound plus the defective old Re=10000 file, exactly as the retraction concluded.
+   The grid ceiling is real for the CLIFF LOCATION (k=103 everywhere) but does NOT cap the fitted kd.
+2. THE 2-REFERENCE LAW's EXPONENT IS CLOSE: 0.526 (from Re=500/1000) vs 0.491 measured over nine
+   regimes — 7% high, which is why it over-predicts at the top (112.7 vs a true ~120 at Re=10000 is
+   now only -6%, not the +26% the defective old file implied).
+3. alpha and p ARE NOT CONSTANT after all. Over a clean family both drift monotonically: alpha
+   2.004 -> 1.758 (-12%), p 1.622 -> 2.680 (+65%). The earlier "no Re trend" verdict was measured on
+   the mixed library where the generator offset (alpha 0.976x, p 0.861x) masked the trend. This does
+   NOT resurrect the old extrapolation attempt - it means the priors should be refitted on the clean
+   family before any further claim.
+STATUS: this supersedes the mixed-library law analysis for the generated regimes. The 2-reference
+DEPLOYMENT procedure is unchanged (we still own GT at Re=500/1000 only); what changed is that the
+research-time reference library is now internally consistent.
