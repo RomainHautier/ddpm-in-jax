@@ -390,3 +390,53 @@ VERDICT: the one-shot PASSES all §6 criteria as pre-registered. The GT-free cha
 anchor, escalation temperature (blind, out-of-sample), R3.2 selection, R3.3' cutoff, frozen
 itemp — is validated end-to-end on never-touched data, with the placement information ceiling
 confirmed as the honest limit of the method.
+
+## 9. OOD INFERENCE SELECTION — PROVABLY GT-FREE (2026-08-07)
+
+### 9.1 Why the previous claim was weak
+`grid_downsample_degrade` and `coarse_spec` both open the full 256^2 ground-truth array and keep
+every 4th pixel. The unused 15/16 of the field was loaded into memory on every call. Nothing used
+it, but "we do not use ground truth" was a statement about code discipline that no auditor could
+verify from the outside.
+
+### 9.2 The fix: materialise the observation, then never read the fine field again
+`src/ddpo_ft/materialize_observed.py` performs the ONE step that legitimately reads the fine field
+and writes exactly what a 4x-coarse solver would have produced:
+    flow-data/observed/re<R>_obs.npy   shape (n_seq, n_frames, 64, 64)   = 1/16 of the fine field
+Everything downstream reads that file and nothing else. There is no ground truth present to leak.
+
+EXACTNESS PROVEN, not asserted (--verify, run 2026-08-07 on Re=2000 seqs 0-7):
+  - nearest-neighbour-filled 256^2 field: bit-identical to the old path (np.array_equal True)
+  - coarse spectrum used by the anchor: max relative difference 0.00e+00
+This is a provenance change with zero numerical effect.
+
+### 9.3 Information provenance of every input to OOD inference selection
+  TARGET-REGIME GROUND TRUTH ......... NEVER READ. Not by the anchor, the sweep, the scoring or
+                                       the selection. After 9.2 it is not even opened.
+  TARGET-REGIME OBSERVATION .......... re<R>_obs.npy — the 64^2 coarse field. The only target-
+                                       regime information the pipeline ever sees.
+  REFERENCE-REGIME GROUND TRUTH ...... Re=500 and Re=1000 only. Enters as FROZEN CONSTANTS fixed
+                                       before deployment: the anchor's alpha/p priors, the kd and
+                                       T laws, the inference temperature 0.30, and the set-point.
+                                       Declared, not hidden — the method is GT-free AT THE TARGET,
+                                       not GT-free everywhere.
+  BASE MODEL ......................... EMA checkpoint trained on Re=1000 only.
+
+### 9.4 The selection rule (frozen)
+Do NOT freeze a cascade. Freeze the rule that picks one:
+  1. Build the anchor from re<R>_obs.npy by the frozen procedure (v1.3), fingerprinted.
+  2. Run every cascade config on those same observed inputs.
+  3. Score each: blind = E_deployed[10,96) / E_anchor[10,96), on the anchor's own source pool.
+  4. Select the config whose blind score is closest to the SET-POINT.
+No target ground truth at any step. This is R5, measured 4/4 correct at regimes with a native model
+and 11/12 on unseen regimes.
+
+### 9.5 The set-point, and its one honest weakness
+SET-POINT = 0.768: the blind score of a model that GROUND TRUTH confirmed was best, measured at
+Re=1000 (iter 449, val retention 0.992; see anchor_derived_rules.md). It is reference-regime GT,
+frozen a priori — legitimate, and declared.
+WEAKNESS: n = 1. It is one number from one regime, and the blind signal's dynamic range (0.05) is
+only ~2x its noise (+-0.02). Re=500 is a second reference with full GT that has NEVER been
+finetuned; repeating the calibration there would say whether the set-point is a constant of the
+method or drifts with regime. Until then, applying 0.768 at Re>=2000 is an ASSUMPTION, not a
+measurement, and must be labelled as one in any result that depends on it.
