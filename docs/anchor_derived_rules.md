@@ -685,3 +685,37 @@ experiment varied the weaker variable and froze the dominant one.
 CORRECT EXPERIMENT: sweep CASCADE x CHECKPOINT at Re=500, find whether any combination reaches
 ret ~ 1.0, and read the blind score there. Only then is there a second set-point to compare — and
 that sweep is also exactly the OOD inference-selection question, so it is needed either way.
+
+## CASCADE x CHECKPOINT SWEEP — 84 cells at the two GT regimes (2026-08-07)
+src/ddpo_ft/cascade_ckpt_sweep.py. 6 cascades x 7 models x 2 regimes; GT graded on held-out val
+(Re=500 seqs 8-13, Re=1000 seqs 32-35), blind score on each anchor's own source pool. Test seqs
+untouched. Motivation: every earlier grading FROZE the cascade and varied only the checkpoint, i.e.
+froze the dominant variable and swept the weak one.
+
+1. THE CASCADE DOMINATES THE CHECKPOINT.
+     Re=500 : spread across cascades 0.296 vs across checkpoints 0.082  (3.6x)
+     Re=1000: spread across cascades 1.019 vs across checkpoints 0.446  (2.3x)
+   And the cascade is FREE at inference; a checkpoint costs a ~4 h training run. The project's
+   effort has gone into blind CHECKPOINT selection (R3.2, R6, early stopping) when blind CASCADE
+   selection is the larger term.
+2. THE TWO REGIMES WANT OPPOSITE CASCADES — no single frozen cascade can serve both.
+     Re=500  best = K4x110 (the DEEPEST rung) + ckpt449 -> ret 0.924
+     Re=1000 best = K3x86               + ckpt449 -> ret 0.999
+   At Re=1000 the K4 row overshoots on EVERY trained checkpoint (1.146 -> 1.937). At Re=500 K3 tops
+   out at 0.750. This is exactly why the frozen K3x86 produced a degenerate Re=500 measurement.
+3. THE SET-POINT IS REGIME-DEPENDENT — now measured like-for-like at each regime's best cell:
+     Re=1000 blind 0.752 (at ret 0.999)      Re=500 blind 0.911 (at ret 0.924)
+   Gap 0.159, ~8x the blind signal's noise. CONSEQUENCE, measured directly: applying Re=1000's
+   set-point 0.752 at Re=500 selects K1-50x12|base -> true ret 0.536, i.e. the SHALLOWEST cascade
+   and the worst usable cell, when 0.924 was available. A transferred absolute set-point is not
+   merely imprecise, it is actively harmful.
+   CAVEAT: Re=500's optimum sits at K4, the LADDER EDGE, and reaches only 0.924. The ladder may be
+   truncated; a deeper rung might carry Re=500 to ~1.0 and move its blind reading. Until the optimum
+   falls in the INTERIOR the 0.159 gap is strong but not airtight.
+4. WHAT THE BLIND SCORE IS GOOD FOR: within a regime it RANKS well — correlation with true retention
+   across all 42 cells is +0.985 (Re=1000) and +0.834 (Re=500). It is a good relative instrument and
+   a bad absolute one, which is the same conclusion the OOD work reached, now on 84 controlled cells.
+5. FINETUNING PAYS VERY DIFFERENTLY BY REGIME, and D predicts it before training:
+     Re=500  (D=0.735): base beats every checkpoint on 4 of 6 rungs; best gain +0.040 over base.
+     Re=1000 (D=0.425): K3 goes 0.452 (base) -> 0.999 (ckpt449).
+   At regimes like Re=500 the right move may be "pick the cascade, skip the finetune" — 0.884 free.
