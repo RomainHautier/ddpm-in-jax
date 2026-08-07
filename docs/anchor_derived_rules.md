@@ -632,3 +632,38 @@ VAL (seqs 32-35) RETENTION BY CHECKPOINT, and the blind score on the TRAIN pool:
 CONSEQUENCE FOR THE OOD RUNS: do NOT reuse [0.798, 0.858]. Either (a) target 0.768 with a tight
 band, accepting that the blind signal's range is only ~2x its noise, or (b) drop early stopping,
 run 600, and select post-hoc by R3.2 — which lands at 0.949 val retention, i.e. a known ~5% cost.
+
+## SECOND SET-POINT MEASUREMENT AT Re=500 — IT IS NOT A CONSTANT (2026-08-07)
+Re=500 is the only other regime whose GT we own, and it had never been finetuned. Same protocol as
+the Re=1000 calibration (8 train seqs 0-7, obs-fit anchor, temp from R3.1 blind, no early stop, 600
+iters, GT probe OFF). Splits train 0-7 | val 8-13 | test 14-19; inter-seq corr 0.096 (independent).
+
+  R3.1: D = 0.7346 -> temp 2.0.  (Re=1000 0.425, Re=2000 0.326, Re=10000 0.191 — monotone in Re.)
+  VAL RETENTION BY CHECKPOINT, with the blind score on the train pool:
+    ckpt   base   49    99   149   199   249   299   349   399   449   499   549   599
+    ret   0.739 0.707 0.677 0.660 0.717 0.630 0.651 0.660 0.704 0.744 0.692 0.684 0.659
+    blind 0.806 0.815 0.824 0.821 0.839 0.832 0.826 0.818 0.837 0.850 0.831 0.825 0.825
+    place 0.903 0.893 0.886 0.885 0.890 0.883 0.861 0.876 0.879 0.872 0.875 0.879 0.864
+
+1. THE SET-POINT IS REGIME-DEPENDENT. Blind score at the GT optimum:
+       Re=1000 -> 0.768        Re=500 -> 0.850
+   A gap of 0.082, about 4x the blind signal's noise (+-0.02) and larger than the whole [0.798,
+   0.858] band. A single frozen set-point applied across regimes is therefore WRONG, and the n=1
+   value 0.768 must not be carried to the OOD runs as if it were a constant. Two points cannot give
+   a law; they establish that a constant is not it.
+2. AT Re=500, FINETUNING BARELY HELPS AND MOSTLY HURTS. The un-finetuned base already reads val ret
+   0.739, k*=95 (FULL effective resolution), place 0.903, lowk 0.981 — because Re=500 is LESS
+   turbulent than the base's training regime, so nothing in it is beyond the base's reach. The best
+   checkpoint (449) reaches ret 0.744 — a 0.005 gain on retention — while LOSING placement
+   (0.903 -> 0.872) and low-k (0.981 -> 0.949). 10 of 12 checkpoints are worse than the base on
+   retention. Net: DDPO is not worth running at Re=500.
+3. WHAT WENT RIGHT: R3.2's blind pick MATCHED the GT optimum exactly (both iter 449), and train and
+   val optima AGREE (both 449) — unlike Re=1000 where they differed by 300 iterations. So the
+   selection machinery works here; it is the fixed TARGET VALUE that does not transfer.
+4. RETRACTED (mine, same day): from three early checkpoints I called a monotone decline "8 sigma,
+   not noise" and an anti-correlation between blind score and truth. The 4th point broke it — the
+   trajectory oscillates by ~0.05 with no trend. The durable statement is only that every finetuned
+   checkpoint except 449 is worse than the base.
+CAVEAT ON BOTH SET-POINTS: the Re=500 and Re=1000 anchors each use their own regime as one of the
+two references (REFS = {500, 1000}), so both are partly self-referential and likely optimistic
+relative to a genuine OOD anchor. Unavoidable with two GT regimes; declared, not hidden.
