@@ -667,3 +667,21 @@ iters, GT probe OFF). Splits train 0-7 | val 8-13 | test 14-19; inter-seq corr 0
 CAVEAT ON BOTH SET-POINTS: the Re=500 and Re=1000 anchors each use their own regime as one of the
 two references (REFS = {500, 1000}), so both are partly self-referential and likely optimistic
 relative to a genuine OOD anchor. Unavoidable with two GT regimes; declared, not hidden.
+
+### RETRACTION (same day, before acting on it): the Re=500 set-point above is DEGENERATE
+The set-point is DEFINED as the blind score of a model GROUND TRUTH says is healthy (ret ~ 1.0).
+  Re=1000: base ret 0.450 -> best 0.992.  HEALTHY. 0.768 is a valid set-point.
+  Re=500 : base ret 0.739 -> best 0.744.  NOT healthy (|ret-1| = 0.256). 0.850 is the blind score
+           of an UNHEALTHY model, not a set-point.
+Comparing 0.850 with 0.768 compares two different quantities. **"The set-point is regime-dependent"
+is NOT established** and the previous entry is withdrawn on that point. What IS established stands:
+at Re=500 the base already reaches k*=95 / ret 0.739 and 10 of 12 finetuned checkpoints are worse.
+
+WHY Re=500 NEVER GETS HEALTHY — and it is the design flaw, not the regime:
+every checkpoint was graded at ONE FIXED CASCADE (K3[150,100,50]x86). The cascade sets the ENERGY
+DOSE; the checkpoint modulates it. At Re=500 that cascade delivers ~0.74 of the required energy
+whatever the weights, so no checkpoint can be healthy and the set-point cannot be read. The
+experiment varied the weaker variable and froze the dominant one.
+CORRECT EXPERIMENT: sweep CASCADE x CHECKPOINT at Re=500, find whether any combination reaches
+ret ~ 1.0, and read the blind score there. Only then is there a second set-point to compare — and
+that sweep is also exactly the OOD inference-selection question, so it is needed either way.
