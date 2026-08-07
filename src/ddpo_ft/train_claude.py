@@ -219,7 +219,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
          pde_two_sided=False, fresh_opt=False,
          anchor_monitor_every=0, anchor_band=None, anchor_patience=2,
-         gt_override=None, train_seqs_override=None):
+         gt_override=None, train_seqs_override=None, no_gt_probe=False):
     import json
     import pickle
     import jax
@@ -383,9 +383,16 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     spec_fn = make_spectrum_fn(N)
     hik_ret = lambda recon, gt: float((np.asarray(spec_fn(recon))[:, 32:].sum(-1)
                                        / np.asarray(spec_fn(gt))[:, 32:].sum(-1)).mean())
-    probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"], grid_factor=grid_factor,
-                                        base_denoise=base_denoise)
-    base_hik = None if smoke else hik_ret(
+    # --no_gt_probe: skip the record-only GT probe entirely. It never influenced training (no
+    # gradient, no checkpoint selection) but it DOES read ground truth, so a GT-free run must not
+    # run it at all. Also avoids RE_CFG's probe_seq pointing past the end of a regenerated file.
+    if no_gt_probe:
+        probe_inp = probe_gt = base_hik = None
+        print("    GT PROBE DISABLED — no ground truth is read anywhere in this run", flush=True)
+    else:
+        probe_inp, probe_gt = make_gt_probe(seq_id=cfg["probe_seq"], gt_path=cfg["gt"],
+                                            grid_factor=grid_factor, base_denoise=base_denoise)
+    base_hik = None if (smoke or no_gt_probe) else hik_ret(
         trainer.probe_x0(probe_inp, jax.random.PRNGKey(7),
                          params=jax.tree_util.tree_map(lambda a: a[0], trainer.base_params)), probe_gt)
     if base_hik is not None:
@@ -460,7 +467,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
               flush=True)
         rec = {"iter": gi, **{k: v for k, v in m.items() if k != "components"},
                **{f"c_{k}": v for k, v in m["components"].items()}}
-        if not smoke and (gi + 1) % eval_every == 0:          # live GT-retention probe
+        if not smoke and not no_gt_probe and (gi + 1) % eval_every == 0:   # live GT-retention probe
             hr = hik_ret(trainer.probe_x0(probe_inp, jax.random.PRNGKey(gi)), probe_gt)
             rec["gt_hik_ret"] = hr
             print(f"    [GTeval iter={gi}] hik_ret={hr:.3f}  (base {base_hik:.3f}, Δ{hr - base_hik:+.3f})", flush=True)
@@ -578,6 +585,8 @@ if __name__ == "__main__":
     ap.add_argument("--anchor_band", type=float, nargs=2, default=None, metavar=("LO", "HI"),
                     help="R6 early-stop band for the anchor score; stop once inside it for "
                          "--anchor_patience consecutive checks. Requires --anchor_monitor_every.")
+    ap.add_argument("--no_gt_probe", action="store_true",
+                    help="skip the record-only GT probe so the run reads NO ground truth")
     ap.add_argument("--gt_override", type=str, default=None,
                     help="use this GT file instead of RE_CFG[re]['gt'] (physics still from --re)")
     ap.add_argument("--train_seqs_override", type=str, default=None,
