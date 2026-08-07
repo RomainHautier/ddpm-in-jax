@@ -440,3 +440,14 @@ only ~2x its noise (+-0.02). Re=500 is a second reference with full GT that has 
 finetuned; repeating the calibration there would say whether the set-point is a constant of the
 method or drifts with regime. Until then, applying 0.768 at Re>=2000 is an ASSUMPTION, not a
 measurement, and must be labelled as one in any result that depends on it.
+
+### 9.6 ALL REGIMES MATERIALISED (2026-08-07)
+`monitoring/materialize_all_obs.sh` — standalone data-prep, run once, independent of any finetuning.
+Every regime's fine field is loaded exactly once, downsampled 4x, and written to its own file:
+    flow-data/observed/re{500,1000,1500,2000,3000,4000,5000,6000,7000,8000,10000}_obs.npy
+    11 files, 1.2 GB total, ALL sequences (so the same artifact serves training pools and held-out
+    evaluation alike). Re=1000 is 40 sequences; the rest are 20.
+EQUIVALENCE PROVEN ON ALL 11: nearest-neighbour-filled 256^2 field bit-identical to the old path,
+coarse spectrum max relative difference 0.00e+00. 11 proofs, 0 failures.
+From here, any OOD stage that opens a file under flow-data/generated/ or a kf_*.npy is by definition
+touching data it should not have. The fine field is not merely unused — it is not in reach.
