@@ -719,3 +719,31 @@ froze the dominant variable and swept the weak one.
      Re=500  (D=0.735): base beats every checkpoint on 4 of 6 rungs; best gain +0.040 over base.
      Re=1000 (D=0.425): K3 goes 0.452 (base) -> 0.999 (ckpt449).
    At regimes like Re=500 the right move may be "pick the cascade, skip the finetune" — 0.884 free.
+
+## LADDER EXTENSION K5-K7 — the K4 optimum WAS a truncation artefact (2026-08-07)
+src/ddpo_ft/cascade_deep_sweep.py. 3 deeper rungs x 7 models x 2 regimes = 42 cells, on top of the
+84 already run. Total grid: 126 cells.
+
+1. TRUNCATION CONFIRMED AND FIXED. Re=500 base retention is monotone in cascade depth and crosses
+   1.0 between K5 and K6:
+     K1-50 0.536 | K1-75 0.551 | K1-100 0.571 | K2 0.635 | K3 0.744 | K4 0.884 | K5 1.012 | K6 1.108 | K7 1.154
+   The K4 "optimum" (0.924) sat on the boundary of the old ladder. The true interior optimum is K5.
+2. AT Re=500, DDPO IS UNNECESSARY. The best cell on ALL THREE metrics is the UN-FINETUNED BASE at
+   K5x140: ret 1.012, place 0.869, lowk 0.963. Every finetuned checkpoint at that rung is worse on
+   all three. The right inference depth alone solves the regime; the 4 h training run buys nothing.
+   (D=0.735 predicted this before training: the base already delivered 73% of the anchor's demand.)
+3. RETENTION ALONE CANNOT DEFINE "HEALTHY" — and the set-point definition depended on it.
+   At Re=500, 12 of 63 cells are within 10% of ret=1.0; they span placement 0.869 down to 0.575 and
+   k* from 95 to 1. One cell reads ret 1.052 with k*=1 — total band energy correct, spectrum wrong
+   at every wavenumber. Selecting on retention alone picks K6x170|0549 (place 0.737); a multi-metric
+   criterion (ret within 10% AND max placement) picks K5x140|base (place 0.869).
+   THE SET-POINT MOVES WITH THE CRITERION:
+     Re=500 : 0.946 (retention-only)  vs  0.835 (multi-metric)
+     Re=1000: 0.752 (retention-only)  vs  0.784 (multi-metric)
+   Retention-only gap = 0.194; multi-metric gap = 0.051. The apparent regime-dependence is largely
+   an artefact of an under-specified health criterion. With a multi-metric definition the two
+   set-points are 0.835 and 0.784 — a gap of ~2.5x the noise, far from the 0.159 claimed earlier.
+4. THE Re=1000 CONTROL BEHAVED AS PREDICTED: deeper rungs overshoot monotonically (K5 up to 3.0,
+   K6 to 4.2, K7 to 5.35). Its optimum stays at K3, interior. The dose picture holds.
+5. THE BLIND SCORE RANKS WELL OVER THE FULL GRID: r = +0.991 (Re=1000, 63 cells) and +0.858
+   (Re=500). Confirms once more: good relative instrument, poor absolute one.
