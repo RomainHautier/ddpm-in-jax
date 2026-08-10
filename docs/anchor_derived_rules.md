@@ -747,3 +747,26 @@ src/ddpo_ft/cascade_deep_sweep.py. 3 deeper rungs x 7 models x 2 regimes = 42 ce
    K6 to 4.2, K7 to 5.35). Its optimum stays at K3, interior. The dose picture holds.
 5. THE BLIND SCORE RANKS WELL OVER THE FULL GRID: r = +0.991 (Re=1000, 63 cells) and +0.858
    (Re=500). Confirms once more: good relative instrument, poor absolute one.
+
+## PLACEMENT PROXY — a GT-free structural axis, tested on 42 re-run cells (2026-08-08)
+src/ddpo_ft/placement_proxy_test.py. proxy = corr(model's local hi-k energy map, BASE
+RECONSTRUCTION's map). The base recon exists at every regime from LR alone, so the proxy is
+computable at OOD; true placement (corr with the GT map) grades it here and never feeds it.
+42 cells re-run with the sweep's exact seeds: Re=500 x {K3,K5,K7}, Re=1000 x {K1-100,K3,K5}, all 7
+models each. Reference context: raw-recon map vs truth = 0.695 (Re=500) / 0.698 (Re=1000).
+
+VERDICT: Re=500 r=+0.959 (range 0.642-0.904) | Re=1000 r=+0.738 (range 0.716-0.896) | pooled +0.783.
+READ HONESTLY:
+- The proxy tracks true placement WELL across cascade rungs (the dose axis) — it cleanly separates
+  K3-level structure (~0.88 true) from K7-level damage (~0.67 true) at both regimes.
+- WITHIN a rung it is noisy: at Re=1000/K1-100 the proxy ordering partly inverts the true ordering
+  (range 0.87-0.90 true vs 0.87-0.90 proxy but shuffled). The lower Re=1000 r is partly range
+  restriction (no rung there craters placement) plus this within-rung noise.
+- One systematic bias, expected and observed: SHALLOW cascades score high on the proxy partly
+  because their output stays close to the recon (K1-100 proxies 0.87-0.90 exceed the 0.698
+  "ceiling" — the model inherits the recon's structure rather than matching truth better).
+  The proxy therefore REWARDS conservatism; it must be used as a GUARD (flag structural damage),
+  never as a maximisation target, or it will always prefer the shallowest rung.
+ROLE IN THE RULE: blind anchor score = dose axis (pick the rung nearest the set-point); proxy =
+structure guard (among near-set-point candidates, reject cells whose proxy has collapsed relative
+to the shallow rungs). Both GT-free at the target.
