@@ -46,9 +46,14 @@ for R in (1500, 3000, 4000, 5000, 6000, 7000, 8000):
                       ck=None)
 REGIMES[2000] = dict(gt=GEN.format(2000), anchor='base_results/regime_stats_re2000_obsfit_newgen.npz',
                      ck='monitoring/ddpo_re2000_newpool_ckpts')
-REGIMES[10000] = dict(gt=GEN.format(10000), anchor='base_results/regime_stats_re10000_obsfit_newgen.npz',
-                      ck=None)
+# Re=10000 EXCLUDED at user request 2026-08-10: the current file is not trusted as
+# high-fidelity; the regime rejoins the ablation when regenerated data arrives.
 PER_SRC, PER_HELD = 8, 10
+# Foreign candidates: the Re=1000 new-pool model's two ground-truth-supported checkpoints
+# (multi-metric healthy = iter0149; retention-best = iter0449). GT use at Re=1000 is legitimate.
+# The selection rule treats them like any other weights; per-regime rung choice does the adapting.
+FOREIGN = {'r1k-149': 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0149.pkl',
+           'r1k-449': 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pkl'}
 
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 spec_fn = make_spectrum_fn(N)
@@ -76,6 +81,15 @@ def pool(gt, seqs, n_per, with_gt=False):
 
 
 SEL, AUD = {}, {}
+if os.path.exists('base_results/setpoint_ablation.npz'):
+    _old = np.load('base_results/setpoint_ablation.npz', allow_pickle=True)
+    for f in _old.files:
+        if f.startswith('S|'):
+            k, fld = f[2:].split('||'); SEL.setdefault(k, {})[fld] = float(_old[f])
+        elif f.startswith('A|'):
+            k, fld = f[2:].split('||'); AUD.setdefault(k, {})[fld] = float(_old[f])
+    print(f"RESUME: {len(SEL)} selection cells and {len(AUD)} audited cells preloaded; "
+          f"already-computed cells are skipped", flush=True)
 for R, c in REGIMES.items():
     d = np.load(c['anchor']); A = d['spec_ref']
     src = d['obs_source'].item().decode().split('|seqs=')[1]
@@ -83,6 +97,7 @@ for R, c in REGIMES.items():
     held = [s for s in range(20) if s not in src_seqs]
     dx = make_dx_func(n=N, re=float(R), std=SIG, mean=MEAN)
     models = [('base', base_params)]
+    models += [(n, pickle.load(open(f, 'rb'))['params']) for n, f in FOREIGN.items()]
     if c['ck']:
         models += [(_re.search(r'iter(\d+)', p).group(1), pickle.load(open(p, 'rb'))['params'])
                    for p in sorted(glob.glob(f"{c['ck']}/*_iter*.pkl"))]
@@ -98,6 +113,8 @@ for R, c in REGIMES.items():
         smp = make_kchain_ddim_sampler(ddpm.unet, ab, starts, steps, dx, 3.0, temp=0.30)
         sa, s1 = float(jnp.sqrt(ab[starts[0]])), float(jnp.sqrt(1.0 - ab[starts[0]]))
         for mname, P in models:
+            if f'{R}|{cname}|{mname}' in SEL:
+                continue
             y = batched(lambda xb, kk: smp(P, sa * xb + s1 * jax.random.normal(
                 jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), recon, 700)
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
@@ -136,13 +153,22 @@ for R, c in REGIMES.items():
     Eg = np.asarray(spec_fn(jnp.asarray(xg))); E_gt = Eg.mean(0)
     Ehg = local_hik_energy(xg[..., 1] * SIG, HIK0, 6.0)
     to_grade = [(cn, 'base') for cn in RUNG_ORDER]
+    lo_all = min(a[1] for a in ARMS.values()); hi_all = max(a[2] for a in ARMS.values())
+    for k in cells:
+        if lo_all <= SEL[k]['blind'] <= hi_all:
+            cn, mn = k.split('|')[1], k.split('|')[2]
+            if (cn, mn) not in to_grade:
+                to_grade.append((cn, mn))
     for arm, (st, k) in picks.items():
         cn, mn = k.split('|')[1], k.split('|')[2]
         if (cn, mn) not in to_grade:
             to_grade.append((cn, mn))
+    to_grade = [(cn, mn) for cn, mn in to_grade if f'{R}|{cn}|{mn}' not in AUD]
     print(f"  AUDIT on seqs {held[:3]}..{held[-1]} ({len(xg)} triplets): "
           f"{len(to_grade)} cells", flush=True)
     mp = dict(models)
+    if not to_grade:
+        print("  AUDIT: all cells already graded", flush=True)
     for cname, mname in to_grade:
         starts, steps = next((s, st) for c2, s, st in LADDER if c2 == cname)
         smp = make_kchain_ddim_sampler(ddpm.unet, ab, starts, steps, dx, 3.0, temp=0.30)
