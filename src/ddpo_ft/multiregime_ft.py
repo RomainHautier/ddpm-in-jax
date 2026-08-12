@@ -103,6 +103,12 @@ def make_p_reward_adv(reward, K):
 
 P_REWARD = {R: make_p_reward_adv(REWARDS[R], GROUP) for R in ORDER}
 rng = np.random.default_rng(0)
+# FIXED per-regime probe inputs: evaluated with the CURRENT weights at every checkpoint, giving
+# nine reward trajectories over training. Signatures: all rise together = the conditioning
+# attractor; sawtooth locked to the rotation = adapt-and-forget; flat mediocre = compromise dose.
+PROBE = {R: jnp.asarray(POOLS[R][np.random.default_rng(7).choice(len(POOLS[R]), 8, replace=False)])
+         for R in ORDER}
+probe_hist = []
 json.dump(dict(regimes=ORDER, per_seq=PER_SEQ, n_outer=N_OUTER, temp=TEMP,
                note=('ORACLE: measured GT anchors (train seqs), NOT deployable; single temp 2.5' if GT_ANCHORS else 'multi-regime rotation; single temp 2.5 = recorded deviation from R3.1')),
           open(f'{SAVE_DIR}/config.json', 'w'), indent=1)
@@ -119,4 +125,13 @@ for gi in range(N_OUTER):
         with open(f'{SAVE_DIR}/ddpo_multi_iter{gi:04d}.pkl', 'wb') as f:
             pickle.dump(dict(params=p0, iter=gi, regime_cycle=ORDER), f)
         print(f"    saved iter{gi:04d}", flush=True)
+        import jax as _jax
+        row = {}
+        for Rp in ORDER:
+            x0p = trainer.probe_x0(PROBE[Rp], _jax.random.PRNGKey(11))
+            rp, _ = REWARDS[Rp](x0p)
+            row[Rp] = float(np.asarray(rp).mean())
+        probe_hist.append(dict(iter=gi, **{str(k): v for k, v in row.items()}))
+        json.dump(probe_hist, open(f'{SAVE_DIR}/probe_history.json', 'w'), indent=1)
+        print("    [probe] " + "  ".join(f"Re{Rp}:{row[Rp]:+.2f}" for Rp in ORDER), flush=True)
 print("MULTIREGIME FINETUNE COMPLETE", flush=True)
