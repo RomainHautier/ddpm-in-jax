@@ -82,7 +82,7 @@ for R in ORDER:
     anchor_path = (f'base_results/regime_stats_re{R}_measured_train.npz' if GT_ANCHORS
                    else c['anchor'])
     REWARDS[R] = Reward.from_calibration(
-        anchor_path, 'base_results/reward_calibration.json', re=R,
+        anchor_path, 'base_results/reward_calibration.json', re=R, scales_re=1000,
         weights={'spec': 0.5, 'spec_highk': 3.0, 'energy': 0.1, 'w1': 0.0, 'pde': 1.0},
         pde_hinge=True)
     print(f"  Re={R}: pool {POOLS[R].shape}, anchor {os.path.basename(anchor_path)}", flush=True)

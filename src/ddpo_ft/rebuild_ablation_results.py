@@ -16,17 +16,18 @@ import numpy as np
 
 LOG = 'monitoring/ab_pdelocal/setpoint_ablation.log'
 CASC = {'K1-50x12', 'K1-75x20', 'K1-100x20', 'K2x50', 'K3x86', 'K4x110', 'K5x140', 'K6x170', 'K7x200'}
-MODELS = {'base', 'r1k-149', 'r1k-449'} | {f'{i:04d}' for i in range(0, 600, 50)}
+MODELS = ({'base', 'r1k-149', 'r1k-449'} | {f'{i:04d}' for i in range(0, 600, 50)}
+          | {f'{i:04d}' for i in range(49, 600, 50)})
 sel_re = re.compile(r'^  (K[0-9x\-]+)\s+(\S+)\s+blind=([01]\.\d{3}) proxy=([01]\.\d{3})\s*$')
 aud_re = re.compile(r'^    (K[0-9x\-]+)\s+(\S+)\s+ret=(\d\.\d{3}) place=([01]\.\d{3}) k\*=(\d+)\s*$')
-hdr_re = re.compile(r'^=== Re=(\d+): SELECTION on seqs .* (\d) models x 9 rungs ===')
+hdr_re = re.compile(r'^=== Re=(\d+): SELECTION on seqs .* (\d+) models x 9 rungs ===')
 
 SEL, AUD = {}, {}
 regime, live = None, False
 for line in open(LOG, errors='replace'):
     m = hdr_re.match(line)
     if m:
-        regime, live = m.group(1), (m.group(2) == '3')
+        regime, live = m.group(1), (int(m.group(2)) >= 3)
         continue
     if not live or regime is None:
         continue
@@ -47,7 +48,7 @@ import collections
 cs = collections.Counter(k.split('|')[0] for k in SEL)
 ca = collections.Counter(k.split('|')[0] for k in AUD)
 for R, n in list(cs.items()):
-    if n > 27:
+    if n > (135 if R == '2000' else 27):   # Re=2000's grid is 15 models x 9 rungs
         print(f'regime {R}: {n} selection cells > 27 possible -> dropping regime (will recompute)')
         for k in [k for k in SEL if k.startswith(f'{R}|')]:
             del SEL[k]

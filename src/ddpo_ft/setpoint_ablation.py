@@ -140,8 +140,15 @@ for R, c in REGIMES.items():
             continue
         dmin = min(abs(SEL[k]['blind'] - sp) for k in surv)
         tied = [k for k in surv if abs(SEL[k]['blind'] - sp) <= dmin + TIE]
+        def _train_amount(name):
+            # tie-break axis 2: less-trained first. base < any checkpoint; foreign 'r1k-NNN'
+            # and native 'NNNN' both order by their iteration count.
+            if name == 'base':
+                return -1
+            digits = ''.join(c for c in name if c.isdigit())
+            return int(digits) if digits else 10**6
         tied.sort(key=lambda k: (RUNG_ORDER.index(k.split('|')[1]),
-                                 -1 if k.split('|')[2] == 'base' else int(k.split('|')[2])))
+                                 _train_amount(k.split('|')[2])))
         picks[arm] = ('OK', tied[0])
         print(f"  [{arm}] pick: {tied[0].split('|',1)[1]} "
               f"(blind {SEL[tied[0]]['blind']:.3f}, {len(surv)} in band)", flush=True)
