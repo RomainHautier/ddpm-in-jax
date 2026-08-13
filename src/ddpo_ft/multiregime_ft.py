@@ -126,8 +126,11 @@ for gi in range(N_OUTER):
     m = trainer.train_iter(jnp.asarray(POOLS[R][idx]))
     ema_params = jax.tree_util.tree_map(lambda e, p: POLICY_EMA * e + (1.0 - POLICY_EMA) * p,
                                         ema_params, trainer.params)
+    comp = "  ".join(f"{k}={v:.3f}" for k, v in m.get('components', {}).items())
     print(f"[{gi:04d}] Re={R:<5} R={m['reward_mean']:.3f}±{m['reward_std']:.3f} "
-          f"gstd={m['group_r_std']:.3f} loss={m.get('loss', float('nan')):.3f}", flush=True)
+          f"gstd={m['group_r_std']:.3f} "
+          f"loss {m.get('loss_first', float('nan')):.3f}->{m.get('loss_last', float('nan')):.3f}"
+          f"  {comp}", flush=True)
     if (gi + 1) % SAVE_EVERY == 0 or gi == N_OUTER - 1:
         p0 = jax.tree_util.tree_map(lambda a: np.asarray(a[0]), trainer.params)
         e0 = jax.tree_util.tree_map(lambda a: np.asarray(a[0]), ema_params)
