@@ -89,9 +89,13 @@ for R in ORDER:
 
 optimizer = optax.adam(LR)
 trainer = DDPOTrainer(ddpm, base_params, REWARDS[ORDER[0]], optimizer, group_size=GROUP,
-                      n_inner=N_INNER, sampler='ddim', policy_ddim_steps=50, eta=1.0,
-                      chain_starts=[100, 75], sampling_temp=TEMP, policy_ema=0.99,
+                      n_inner=N_INNER, sampler='ddim', ddim_steps=50, eta=1.0,
+                      chain_starts=[100, 75], sampling_temp=TEMP, kl_coef=0.01,
                       seed=0)
+# EMA shadow over the (replicated) policy weights, exactly as in train_claude — the newpool recipe
+# all graded checkpoints came from used mu=0.99; kept identical so multi-regime ckpts are comparable
+POLICY_EMA = 0.99
+ema_params = jax.tree_util.tree_map(lambda a: a, trainer.params)
 
 # nine pmapped reward+advantage closures sharing the trainer's group size; swapped per iteration
 def make_p_reward_adv(reward, K):
@@ -110,6 +114,8 @@ PROBE = {R: jnp.asarray(POOLS[R][np.random.default_rng(7).choice(len(POOLS[R]), 
          for R in ORDER}
 probe_hist = []
 json.dump(dict(regimes=ORDER, per_seq=PER_SEQ, n_outer=N_OUTER, temp=TEMP,
+               kl_coef=0.01, policy_ema=POLICY_EMA, lr=LR, group_size=GROUP, batch=B,
+               policy=dict(sampler='ddim', ddim_steps=50, eta=1.0, chain_starts=[100, 75]),
                note=('ORACLE: measured GT anchors (train seqs), NOT deployable; single temp 2.5' if GT_ANCHORS else 'multi-regime rotation; single temp 2.5 = recorded deviation from R3.1')),
           open(f'{SAVE_DIR}/config.json', 'w'), indent=1)
 
@@ -118,12 +124,16 @@ for gi in range(N_OUTER):
     trainer._p_reward_adv = P_REWARD[R]
     idx = rng.choice(len(POOLS[R]), B, replace=False)
     m = trainer.train_iter(jnp.asarray(POOLS[R][idx]))
+    ema_params = jax.tree_util.tree_map(lambda e, p: POLICY_EMA * e + (1.0 - POLICY_EMA) * p,
+                                        ema_params, trainer.params)
     print(f"[{gi:04d}] Re={R:<5} R={m['reward_mean']:.3f}±{m['reward_std']:.3f} "
           f"gstd={m['group_r_std']:.3f} loss={m.get('loss', float('nan')):.3f}", flush=True)
     if (gi + 1) % SAVE_EVERY == 0 or gi == N_OUTER - 1:
         p0 = jax.tree_util.tree_map(lambda a: np.asarray(a[0]), trainer.params)
+        e0 = jax.tree_util.tree_map(lambda a: np.asarray(a[0]), ema_params)
         with open(f'{SAVE_DIR}/ddpo_multi_iter{gi:04d}.pkl', 'wb') as f:
-            pickle.dump(dict(params=p0, iter=gi, regime_cycle=ORDER), f)
+            pickle.dump(dict(params=p0, ema_params=e0, ema_rate=POLICY_EMA, iter=gi,
+                             regime_cycle=ORDER), f)
         print(f"    saved iter{gi:04d}", flush=True)
         import jax as _jax
         row = {}
