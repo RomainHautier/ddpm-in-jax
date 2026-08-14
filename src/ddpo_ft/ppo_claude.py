@@ -142,7 +142,7 @@ def build_ddim_denoiser(unet, alpha_bar, t_start, n_steps):
 
 # ============================================================ stochastic-DDIM policy (eta > 0)
 
-def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0):
+def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0, cond_fn=None, visc=None):
     """The stochastic-DDIM reverse-step policy pi(x_tn | x_tc) over the subsampled schedule step
     tc -> tn (tc > tn): return (mean_theta, std). Song et al. 2020 eq. 16 with the model's x0:
         x0_hat = (x_tc - sqrt(1-ab_tc) eps) / sqrt(ab_tc)
@@ -151,9 +151,16 @@ def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0):
     eta=0 is the deterministic sampler and is INVALID as a DDPO policy: the density degenerates to a
     delta, log pi -> -||a - mean||^2/(2 sigma^2) blows up and the PPO ratio is undefined. The builders
     assert 0 < eta <= 1 (eta > 1 makes 1-ab_tn-sigma^2 negative -> NaN mean). `temp` scales std only,
-    same convention as policy_mean_std. UNCONDITIONAL base only (no condRes/CFG wiring)."""
+    same convention as policy_mean_std.
+    cond_fn (regime conditioning, ConditionalUnet only): condRes = cond_fn(x_t, visc) is computed at
+    the CURRENT state and fed to the network — direct conditioning, no CFG mixing. visc is a traced
+    scalar (1/Re) so one compilation serves every regime. cond_fn=None -> unconditional (unchanged)."""
     B = x_t.shape[0]
-    eps = unet.apply({"params": params}, x_t, jnp.full((B,), tc, jnp.int32), train=False)
+    t_arr = jnp.full((B,), tc, jnp.int32)
+    if cond_fn is not None:
+        eps = unet.apply({"params": params}, x_t, t_arr, train=False, condRes=cond_fn(x_t, visc))
+    else:
+        eps = unet.apply({"params": params}, x_t, t_arr, train=False)
     ab_c, ab_n = alpha_bar[tc], alpha_bar[tn]
     x0 = (x_t - jnp.sqrt(1.0 - ab_c) * eps) / jnp.sqrt(ab_c)
     sigma = eta * jnp.sqrt((1.0 - ab_n) / (1.0 - ab_c)) * jnp.sqrt(1.0 - ab_c / ab_n)
@@ -189,7 +196,7 @@ def kchain_schedules(chain_starts, n_steps, stride=None):
 
 
 def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, chain_starts=None,
-                       stride=None):
+                       stride=None, cond_fn=None):
     """DDIM analogue of build_rollout: rollout(params, x_start, key) -> (states, actions, logp, x0)
     over the len(seq)-1 stochastic pairs of the subsampled schedule, plus a FINAL deterministic
     x0-prediction at seq[-1] for the reward — OUTSIDE the policy (no action, no log-prob stored).
@@ -214,18 +221,23 @@ def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, cha
              for s in scheds]
     renoise_coef = [(jnp.sqrt(alpha_bar[S]), jnp.sqrt(1.0 - alpha_bar[S])) for S in starts[1:]]
 
-    def rollout(params, x_start, key):
+    def _rollout(params, x_start, key, visc):
         def step(carry, ts):
             x, k = carry
             tc, tn = ts
             k, sk = jax.random.split(k)
-            mean, std = ddim_mean_std(unet, params, x, tc, tn, alpha_bar, eta, temp)
+            mean, std = ddim_mean_std(unet, params, x, tc, tn, alpha_bar, eta, temp, cond_fn, visc)
             a = mean + std * jax.random.normal(sk, x.shape)    # sample x_tn (every pair stochastic)
             return (a, k), (x, a, gaussian_logprob(mean, std, a))
 
         def x0_pred(x_low, t_last):
             B = x_low.shape[0]
-            eps = unet.apply({"params": params}, x_low, jnp.full((B,), t_last, jnp.int32), train=False)
+            t_arr = jnp.full((B,), t_last, jnp.int32)
+            if cond_fn is not None:
+                eps = unet.apply({"params": params}, x_low, t_arr, train=False,
+                                 condRes=cond_fn(x_low, visc))
+            else:
+                eps = unet.apply({"params": params}, x_low, t_arr, train=False)
             return (x_low - jnp.sqrt(1.0 - alpha_bar[t_last]) * eps) / jnp.sqrt(alpha_bar[t_last])
 
         x, outs = x_start, []
@@ -242,11 +254,14 @@ def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, cha
                 x = jax.lax.stop_gradient(sa * x0 + s1 * z)
         states, actions, logp = (jnp.concatenate([o[i] for o in outs], axis=0) for i in range(3))
         return states, actions, logp, x0    # (T',B,...) stacked, T' = sum of per-chain pairs
-    return rollout
+
+    if cond_fn is not None:
+        return _rollout                                        # (params, x_start, key, visc)
+    return lambda params, x_start, key: _rollout(params, x_start, key, None)
 
 
 def build_ddim_loss(unet, alpha_bar, t_start, n_steps, clip_eps=0.2, eta=1.0, kl_coef=0.0, temp=1.0,
-                    chain_starts=None, stride=None):
+                    chain_starts=None, stride=None, cond_fn=None):
     """DDIM analogue of build_loss: identical PPO clipped surrogate (with jax.checkpoint), but the
     scan carries the (t_cur, t_nxt) schedule pairs and the policy is ddim_mean_std. Must be built
     with the SAME (t_start, n_steps, eta, temp, chain_starts) as the rollout, or the stored
@@ -262,24 +277,29 @@ def build_ddim_loss(unet, alpha_bar, t_start, n_steps, clip_eps=0.2, eta=1.0, kl
     t_cur = jnp.concatenate([jnp.asarray(s[:-1], dtype=jnp.int32) for s in scheds])
     t_nxt = jnp.concatenate([jnp.asarray(s[1:], dtype=jnp.int32) for s in scheds])
 
-    def loss_fn(params, states, actions, logp_old, adv, base_params):
+    def _loss_fn(params, states, actions, logp_old, adv, base_params, visc):
         adv = jax.lax.stop_gradient(adv)
 
         def step(carry, d):
             x_t, a_t, lpo, tc, tn = d
-            mean, std = ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta, temp)
+            mean, std = ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta, temp, cond_fn, visc)
             logp = gaussian_logprob(mean, std, a_t)                    # (B,) under current theta
             ratio = jnp.exp(logp - lpo)
             surr = jnp.mean(jnp.minimum(ratio * adv, jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv))
             kl = 0.0
             if kl_coef > 0.0:
-                mean_b, _ = ddim_mean_std(unet, base_params, x_t, tc, tn, alpha_bar, eta, temp)
+                mean_b, _ = ddim_mean_std(unet, base_params, x_t, tc, tn, alpha_bar, eta, temp,
+                                          cond_fn, visc)
                 kl = jnp.mean(jnp.sum((mean - mean_b) ** 2, axis=(-3, -2, -1)) / (2.0 * std ** 2))
             return carry, (surr, kl)
 
         _, (surrs, kls) = jax.lax.scan(jax.checkpoint(step), None, (states, actions, logp_old, t_cur, t_nxt))
         return -jnp.mean(surrs) + kl_coef * jnp.mean(kls)
-    return loss_fn
+
+    if cond_fn is not None:
+        return _loss_fn                       # (params, states, actions, logp_old, adv, base, visc)
+    return lambda params, states, actions, logp_old, adv, base_params: _loss_fn(
+        params, states, actions, logp_old, adv, base_params, None)
 
 
 def build_rollout(unet, alpha_bar, beta_schedule, t_start, cond_func=None, cond_strength=0.0, temp=1.0):
@@ -348,7 +368,12 @@ class DDPOTrainer:
     def __init__(self, ddpm, params, reward, optimizer, group_size,
                  t_start=150, clip_eps=0.2, kl_coef=0.0, n_inner=4, seed=0,
                  cond_strength=0.0, sampling_temp=1.0, base_params=None, opt_state=None,
-                 sampler="ddpm", ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None):
+                 sampler="ddpm", ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
+                 ddim_cond_fn=None):
+        # ddim_cond_fn (ConditionalUnet + sampler='ddim' only): condRes = ddim_cond_fn(x_t, visc)
+        # computed at every policy step and fed to the network. visc (1/Re) is passed per iteration
+        # via train_iter(..., visc=) / probe_x0(..., visc=) as a TRACED scalar, so one compilation
+        # serves every regime. Distinct from the legacy config-driven cond_func (DDPM sampler, CFG).
         # RESUME: pass `params`/`opt_state` from a checkpoint to continue, and `base_params` = the
         # ORIGINAL frozen base (ckpt_0299) so the KL anchor stays the true base, not the resumed model.
         # sampler="ddim": stochastic-DDIM policy over ~ddim_steps subsampled steps (eta in (0,1],
@@ -395,15 +420,19 @@ class DDPOTrainer:
         self._sqrt_ab = float(jnp.sqrt(self.alpha_bar[t_start]))
         self._sqrt_1mab = float(jnp.sqrt(1.0 - self.alpha_bar[t_start]))
         self.sampler = sampler
+        self._ddim_cond = ddim_cond_fn is not None
         if sampler == "ddim":
-            assert self.cond_func is None, "sampler='ddim' supports the UNCONDITIONAL base only"
+            assert self.cond_func is None, \
+                "sampler='ddim' does not support the legacy config cond_func (use ddim_cond_fn)"
             rollout = build_ddim_rollout(self.unet, self.alpha_bar, t_start, ddim_steps, eta,
-                                         sampling_temp, chain_starts, ddim_stride)
+                                         sampling_temp, chain_starts, ddim_stride, ddim_cond_fn)
             loss_fn = build_ddim_loss(self.unet, self.alpha_bar, t_start, ddim_steps,
-                                      clip_eps, eta, kl_coef, sampling_temp, chain_starts, ddim_stride)
+                                      clip_eps, eta, kl_coef, sampling_temp, chain_starts,
+                                      ddim_stride, ddim_cond_fn)
             eval_rollout = build_ddim_rollout(self.unet, self.alpha_bar, t_start, ddim_steps, eta,
-                                              1.0, chain_starts, ddim_stride)
+                                              1.0, chain_starts, ddim_stride, ddim_cond_fn)
         else:
+            assert ddim_cond_fn is None, "ddim_cond_fn requires sampler='ddim'"
             rollout = build_rollout(self.unet, self.alpha_bar, self.beta_schedule,
                                     t_start, self.cond_func, cond_strength, sampling_temp)
             loss_fn = build_loss(self.unet, self.alpha_bar, self.beta_schedule, t_start,
@@ -420,12 +449,21 @@ class DDPOTrainer:
             grp_std = r.reshape(-1, K).std(axis=1).mean()
             return r, per_input_advantage(r, K), comps, grp_std
 
-        def update(params, opt_state, states, actions, logp_old, adv, base_params):
-            loss, grads = jax.value_and_grad(loss_fn)(params, states, actions, logp_old, adv, base_params)
-            grads = jax.lax.pmean(grads, "dev")              # data-parallel gradient average
-            loss = jax.lax.pmean(loss, "dev")
-            updates, opt_state = optimizer.update(grads, opt_state, params)
-            return optax.apply_updates(params, updates), opt_state, loss
+        if self._ddim_cond:
+            def update(params, opt_state, states, actions, logp_old, adv, base_params, visc):
+                loss, grads = jax.value_and_grad(loss_fn)(params, states, actions, logp_old, adv,
+                                                          base_params, visc)
+                grads = jax.lax.pmean(grads, "dev")          # data-parallel gradient average
+                loss = jax.lax.pmean(loss, "dev")
+                updates, opt_state = optimizer.update(grads, opt_state, params)
+                return optax.apply_updates(params, updates), opt_state, loss
+        else:
+            def update(params, opt_state, states, actions, logp_old, adv, base_params):
+                loss, grads = jax.value_and_grad(loss_fn)(params, states, actions, logp_old, adv, base_params)
+                grads = jax.lax.pmean(grads, "dev")          # data-parallel gradient average
+                loss = jax.lax.pmean(loss, "dev")
+                updates, opt_state = optimizer.update(grads, opt_state, params)
+                return optax.apply_updates(params, updates), opt_state, loss
 
         self._p_rollout = jax.pmap(rollout, axis_name="dev")
         self._p_reward_adv = jax.pmap(reward_adv, axis_name="dev")
@@ -442,21 +480,27 @@ class DDPOTrainer:
         self.key, k = jax.random.split(self.key)
         return k
 
-    def probe_x0(self, x_cond, key, params=None):
+    def probe_x0(self, x_cond, key, params=None, visc=None):
         """Deterministic (temp=1) reconstruction of x_cond (B,N,N,3) with the CURRENT model (one
         replica) — for the live GT-retention probe. params=None uses self.params[0]; pass base
-        params to get the base reference."""
+        params to get the base reference. visc: required iff the trainer was built with
+        ddim_cond_fn (the regime's 1/Re, fed to the conditioning signal)."""
         p = params if params is not None else jax.tree_util.tree_map(lambda a: a[0], self.params)
         k1, k2 = jax.random.split(key)
         x_start = self._sqrt_ab * x_cond + self._sqrt_1mab * jax.random.normal(k1, x_cond.shape)
-        *_, x0 = self._eval_rollout(p, x_start, k2)
+        if self._ddim_cond:
+            assert visc is not None, "conditioned trainer: probe_x0 needs visc=1/Re"
+            *_, x0 = self._eval_rollout(p, x_start, k2, jnp.float32(visc))
+        else:
+            *_, x0 = self._eval_rollout(p, x_start, k2)
         return x0
 
-    def train_iter(self, x_cond):
+    def train_iter(self, x_cond, visc=None):
         """One OUTER iteration, DATA-PARALLEL. x_cond: (n_inputs, N,N,3) with n_inputs divisible by
         n_dev. Each device gets n_inputs/n_dev inputs (tiled K times), rolls out under theta_old,
         computes its own per-input advantage, and contributes to the pmean'd gradient => effective
-        batch = n_inputs * K. Returns a metrics dict."""
+        batch = n_inputs * K. Returns a metrics dict. visc: required iff the trainer was built with
+        ddim_cond_fn (this batch's regime as 1/Re; traced, so no recompilation across regimes)."""
         nd = self.n_dev
         ipd = x_cond.shape[0] // nd                                    # inputs per device
         xc = x_cond.reshape(nd, ipd, *x_cond.shape[1:])               # (nd, ipd, N,N,3)
@@ -464,12 +508,22 @@ class DDPOTrainer:
         noise = jax.random.normal(self._next_key(), xc.shape)
         x_start = self._sqrt_ab * xc + self._sqrt_1mab * noise        # SDEdit start, per device
         keys = jax.random.split(self._next_key(), nd)                 # (nd, 2) one rollout key per device
-        states, actions, logp_old, x0 = self._p_rollout(self.params, x_start, keys)
+        if self._ddim_cond:
+            assert visc is not None, "conditioned trainer: train_iter needs visc=1/Re"
+            vd = jnp.full((nd,), visc, jnp.float32)                   # replicated traced scalar
+            states, actions, logp_old, x0 = self._p_rollout(self.params, x_start, keys, vd)
+        else:
+            states, actions, logp_old, x0 = self._p_rollout(self.params, x_start, keys)
         r, adv, comps, grp_std = self._p_reward_adv(x0)               # (nd, ipd*K) each
         losses = []
         for _ in range(self.n_inner):
-            self.params, self.opt_state, loss = self._p_update(
-                self.params, self.opt_state, states, actions, logp_old, adv, self.base_params)
+            if self._ddim_cond:
+                self.params, self.opt_state, loss = self._p_update(
+                    self.params, self.opt_state, states, actions, logp_old, adv,
+                    self.base_params, vd)
+            else:
+                self.params, self.opt_state, loss = self._p_update(
+                    self.params, self.opt_state, states, actions, logp_old, adv, self.base_params)
             losses.append(float(loss[0]))                            # pmean'd -> identical per device
         r_np = np.asarray(r).reshape(-1); adv_np = np.asarray(adv).reshape(-1)
         return {

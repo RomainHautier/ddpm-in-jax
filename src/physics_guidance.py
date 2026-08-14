@@ -101,6 +101,31 @@ def make_field_func(n=256, re=1000.0, dt=1.0 / 32.0, std=4.7988, mean=0.0, dtype
     return jax.jit(field)
 
 
+def make_field_func_visc(n=256, dt=1.0 / 32.0, std=4.7988, mean=0.0, dtype=jnp.float32):
+    """Viscosity-parameterized variant of make_field_func: field(x_norm, visc) where visc is a
+    TRACED scalar (1/Re), so ONE compiled rollout/loss serves every regime with visc passed per
+    batch — instead of nine re-baked closures. Same ENS residual-field signal, same /std
+    normalization, same 3-channel tiling for `cond_in`. Deliberately NOT jitted here: it is traced
+    inside the pmapped policy functions that consume it."""
+    kx, ky, ksq, ksq_nz, yy = _operators(n, dtype)
+    forcing = -4.0 * jnp.cos(4.0 * yy)
+
+    def field(x_norm, visc):
+        w = x_norm * std + mean
+        wt = (w[..., 2] - w[..., 0]) / (2.0 * dt)
+        wm = w[..., 1]
+        wh = jnp.fft.fft2(wm, axes=(-2, -1))
+        psih = wh / ksq_nz
+        u = jnp.fft.ifft2(1j * ky * psih, axes=(-2, -1)).real
+        v = jnp.fft.ifft2(-1j * kx * psih, axes=(-2, -1)).real
+        wx = jnp.fft.ifft2(1j * kx * wh, axes=(-2, -1)).real
+        wy = jnp.fft.ifft2(1j * ky * wh, axes=(-2, -1)).real
+        wlap = jnp.fft.ifft2(-ksq * wh, axes=(-2, -1)).real
+        r = wt + (u * wx + v * wy - visc * wlap + 0.1 * wm) - forcing
+        return jnp.repeat((r / std)[..., None], 3, axis=-1)
+    return field
+
+
 def make_cond_func(signal="gradient", **kw):
     """Select the LEARNED-conditioning signal fed to the adapter as `condRes`:
       - 'gradient' -> make_dx_func  : residual-minimization direction (original / linear-guidance grad).
