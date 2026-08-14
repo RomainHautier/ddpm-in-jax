@@ -41,6 +41,14 @@ from src.sequence_inference import build_triplets, grid_downsample_degrade, load
 
 SMOKE = '--smoke' in sys.argv
 GT_ANCHORS = '--gt_anchors' in sys.argv   # ORACLE MODE: measured ground-truth spectra as targets.
+# --adapter_init PATH: warm-start the three cond_* modules from a pretrained conditioned
+# checkpoint (e.g. the GCS conditioned_field_cond_60ep supervised adapter, same field signal,
+# trained frozen-base at Re=1000). Backbone stays OUR EMA base either way. In this mode the
+# model is deliberately NOT base-identical at start (the adapter already conditions), so the
+# identity assert is replaced by a logged deviation.
+ADAPTER_INIT = None
+if '--adapter_init' in sys.argv:
+    ADAPTER_INIT = sys.argv[sys.argv.index('--adapter_init') + 1]
 MEAN, SIG = 0.0, 4.7988
 GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {
@@ -59,6 +67,8 @@ SAVE_EVERY = 2 if SMOKE else 90
 B, GROUP, N_INNER, TEMP, LR = 8, 4, 4, 2.5, 5e-5
 SAVE_DIR = ('monitoring/ddpo_multiregime_cond_gt_ckpts' if GT_ANCHORS
             else 'monitoring/ddpo_multiregime_cond_ckpts')
+if ADAPTER_INIT:
+    SAVE_DIR += '_adapter'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 ddpm, base_params, _ = build_base_ddpm()
@@ -90,6 +100,16 @@ for k in base_params:
     cs = jax.tree_util.tree_map(lambda a: a.shape, cond_params[k])
     assert bs == cs, f"shape mismatch in shared module {k}: {bs} vs {cs}"
     merged[k] = base_params[k]
+if ADAPTER_INIT:
+    ad = pickle.load(open(ADAPTER_INIT, 'rb'))['params']
+    for k in ('cond_in', 'cond_hidden', 'cond_combine'):
+        ash = jax.tree_util.tree_map(lambda a: np.asarray(a).shape, ad[k])
+        csh = jax.tree_util.tree_map(lambda a: np.asarray(a).shape, merged[k])
+        assert ash == csh, f"adapter module {k} shape mismatch: {ash} vs {csh}"
+        merged[k] = jax.tree_util.tree_map(np.asarray, ad[k])
+    print(f"ADAPTER WARM-START: cond_* modules loaded from {ADAPTER_INIT} "
+          f"(epoch {pickle.load(open(ADAPTER_INIT, 'rb')).get('epoch', '?')}); "
+          "backbone remains the EMA base", flush=True)
 
 # ---- BASE-IDENTITY CHECK: the merged conditional model must equal the plain base in exact
 # arithmetic. TPU matmuls default to bfloat16, and the extra (identity) cond_combine conv
@@ -108,7 +128,11 @@ eps_cond = cond_unet.apply({'params': merged}, tx, tt, train=False, condRes=cres
 dmax_bf16 = float(jnp.abs(eps_plain - eps_cond).max())
 print(f"base-identity check: max diff {dmax32:.2e} (float32)  {dmax_bf16:.2e} (device default)",
       flush=True)
-assert dmax32 < 1e-3, "merged conditional model does not reproduce the base — zero-init broken"
+if ADAPTER_INIT:
+    print("  (adapter warm-start: nonzero deviation from base is EXPECTED and not asserted)",
+          flush=True)
+else:
+    assert dmax32 < 1e-3, "merged conditional model does not reproduce the base — zero-init broken"
 
 ddpm.unet = cond_unet          # trainer builds its policy around ddpm.unet
 
@@ -161,6 +185,7 @@ json.dump(dict(regimes=ORDER, per_seq=PER_SEQ, n_outer=N_OUTER, temp=TEMP,
                policy=dict(sampler='ddim', ddim_steps=50, eta=1.0, chain_starts=[100, 75]),
                conditioning='ENS residual-field (make_field_func_visc), visc=1/Re per batch, '
                             'ConditionalUnet zero-init merge (base-identical at start)',
+               adapter_init=ADAPTER_INIT,
                note=('ORACLE: measured GT anchors (train seqs), NOT deployable; single temp 2.5'
                      if GT_ANCHORS else 'obs-fit anchors; single temp 2.5')),
           open(f'{SAVE_DIR}/config.json', 'w'), indent=1)
