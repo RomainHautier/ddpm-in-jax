@@ -162,12 +162,9 @@ for nm in MODELS:
 
 best = min(rows, key=lambda nm: np.mean([abs(1.0 - rows[nm][R]['ret']) for R in ORDER]))
 print(f"\nBEST VARIANT BY ROW FLATNESS: {best}", flush=True)
-
-# ---- PHASE 2: ladder for the best variant ----
-print(f"\n===== PHASE 2: ladder for {best} =====", flush=True)
-for R in ORDER:
-    for c in REST_RUNGS + (['K6x170'] if R >= 6000 else []):
-        run_cell(R, best, c)
+# NO ladder sweep (user 2026-08-16): the question is single-config generalization — one fixed
+# inference config, only the conditioning's viscosity changes with the regime. The row above IS
+# the answer; depth compensation is deliberately out of scope here.
 
 np.savez(OUTP, **OUT)
 print("\nMULTIREGIME-COND GRADE COMPLETE", flush=True)
