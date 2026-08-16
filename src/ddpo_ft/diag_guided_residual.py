@@ -116,7 +116,10 @@ def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
 
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
                              eta=1.0, temp=1.0, return_stages=False, stride=None,
-                             brake_func=None, mu=0.0):
+                             brake_func=None, mu=0.0, cond_fn=None, cond_visc=None):
+    # cond_fn/cond_visc (ConditionalUnet only): condRes = cond_fn(x, cond_visc) is computed at the
+    # CURRENT state and fed to the network at every eps prediction — the inference mirror of the
+    # ddim_cond_fn training path. cond_visc is baked per sampler instance (like dx_func's Re).
     # INFERENCE TEMPERATURE (measured 2026-07-19): colder is MONOTONICALLY better on every metric.
     # On the temp2.5-trained OOD model: temp 1.00 -> ret 0.906, 0.70 -> 0.934, 0.30 -> 0.958 (k*87),
     # free (no retraining). Training wants wide noise (exploration); inference wants narrow noise —
@@ -142,7 +145,12 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
                     for S in starts[1:]]
 
     def _x0hat(params, x, t):
-        eps = unet.apply({"params": params}, x, jnp.full((x.shape[0],), t, jnp.int32), train=False)
+        t_arr = jnp.full((x.shape[0],), t, jnp.int32)
+        if cond_fn is not None:
+            eps = unet.apply({"params": params}, x, t_arr, train=False,
+                             condRes=cond_fn(x, cond_visc))
+        else:
+            eps = unet.apply({"params": params}, x, t_arr, train=False)
         x0 = (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t])
         if lam > 0:
             x0 = x0 - lam * dx_func(x0)
