@@ -56,6 +56,9 @@ MODELS = {'film-final': (CK.format(hist[-1]['iter']), 'params'),
           'film-ema': (CK.format(hist[-1]['iter']), 'ema_params')}
 if best_iter != hist[-1]['iter']:
     MODELS[f'film-{best_iter}'] = (CK.format(best_iter), 'params')
+mid_iter = min(mean_probe, key=lambda i: abs(i - 629))       # halfway checkpoint: was the dose
+if mid_iter not in (best_iter, hist[-1]['iter']):            # behaviour formed early or late?
+    MODELS[f'film-mid{mid_iter}'] = (CK.format(mid_iter), 'params')
 
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 u = ddpm.unet
