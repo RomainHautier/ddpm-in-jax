@@ -151,6 +151,111 @@ class Unet(nn.Module):
         return nn.Conv(self.out_ch, kernel_size=(3, 3), padding="CIRCULAR")(h)
 
 
+class FiLMUnet(nn.Module):
+    """The plain Unet + regime conditioning through the TIME-EMBEDDING pathway (FiLM-style).
+
+    condRes here is a (B,) SCALAR REGIME CODE per sample (e.g. log(Re/1000)/log 8: 0 at the
+    training regime, 1 at Re=8000) — the kwarg keeps the ConditionalUnet name so every existing
+    cond_fn plumbing (ppo ddim_cond_fn, the cond-aware kchain sampler) works unchanged.
+
+    Mechanism: a 2-layer MLP embeds the code and ADDS it to the time embedding, which every
+    DDPMResnet block already turns into a per-channel modulation between its convs — the exact
+    pathway that lets the network behave differently per noise level, i.e. the shortest existing
+    path from a global scalar to a global output-amplitude change. The output layer of the MLP is
+    ZERO-INITIALISED (kernel and bias), so with condRes given the model is BIT-identical to the
+    base at initialisation (adding exact zeros — no extra ops on the feature path, unlike
+    ConditionalUnet's identity conv which costs ~1e-2 of bfloat16 rounding)."""
+    ch: int = 64
+    ch_mult: tuple = (1, 1, 1, 2)
+    out_ch: int = 3
+    in_ch: int = 3
+    n_resnet_blocks: int = 1
+    dropout_p: float = 0.0
+    freq_dim: int = 128
+
+    @nn.compact
+    def __call__(self, x, t, train=True, condRes=None):
+        ch = self.ch
+        temp_ch = ch * 4
+        time_embed = sinusoidal_time_embedding(t, dim=self.freq_dim)
+        time_embed = nn.Dense(temp_ch)(time_embed)
+        time_embed = jax.nn.silu(time_embed)
+        time_embed = nn.Dense(temp_ch)(time_embed)
+        if condRes is not None:
+            r = nn.Dense(temp_ch, name="re_emb_hidden")(condRes[:, None])
+            r = jax.nn.silu(r)
+            r = nn.Dense(temp_ch, name="re_emb_out",
+                         kernel_init=nn.initializers.zeros,
+                         bias_init=nn.initializers.zeros)(r)
+            time_embed = time_embed + r
+
+        h = nn.Conv(ch, kernel_size=(3, 3), padding="CIRCULAR")(x)
+        hs = [h]
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[0], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[1], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = nn.Conv(
+            ch * self.ch_mult[2], kernel_size=(3, 3), strides=(2, 2), padding=((0, 1), (0, 1))
+        )(h)
+        hs.append(h)
+        for _ in range(self.n_resnet_blocks):
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                h, time_embed=time_embed, train=train
+            )
+            hs.append(h)
+        h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
+        h = SelfAttention(num_groups=8)(h)
+        h = DDPMResnet(ch * self.ch_mult[-1], self.dropout_p)(h, time_embed=time_embed, train=train)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[3], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[3], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[2], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[2], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[1], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        B, H, W, C = h.shape
+        h = jax.image.resize(h, (B, H * 2, W * 2, C), method="nearest")
+        h = nn.Conv(ch * self.ch_mult[1], kernel_size=(3, 3), padding="CIRCULAR")(h)
+        for _ in range(self.n_resnet_blocks + 1):
+            h = DDPMResnet(ch * self.ch_mult[0], self.dropout_p)(
+                jnp.concatenate([h, hs.pop()], axis=-1), time_embed=time_embed, train=train
+            )
+        h = nn.GroupNorm(8)(h)
+        h = jax.nn.silu(h)
+        return nn.Conv(self.out_ch, kernel_size=(3, 3), padding="CIRCULAR")(h)
+
+
 class ConditionalUnet(nn.Module):
     ch: int = 64
     ch_mult: tuple = (1, 1, 1, 2)
