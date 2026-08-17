@@ -26,6 +26,7 @@ from src.rewards import make_spectrum_fn
 from src.physics_guidance import make_dx_func
 from src.sequence_inference import build_triplets, grid_downsample_degrade, load_sequence
 from eval_ddpo import eff_resolution
+from psample import pbatched as batched     # all-chip sampling; PSAMPLE=0 restores serial
 
 MEAN, SIG, N, HIK0 = 0.0, 4.7988, 256, 32
 LADDER = [('K2x50', [100, 75], 50), ('K3x86', [150, 100, 50], 86),
@@ -52,13 +53,6 @@ spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
 _sa, _s1 = float(jnp.sqrt(ab[100])), float(jnp.sqrt(1.0 - ab[100]))
 PARAMS = {k: pickle.load(open(v, 'rb'))['params'] for k, v in MODELS.items()}
-
-
-def batched(fn, x, seed, bs=16):
-    k = jax.random.PRNGKey(seed); o = []
-    for i in range(0, len(x), bs):
-        o.append(np.asarray(fn(jnp.asarray(x[i:i + bs]), jax.random.fold_in(k, i))))
-    return np.concatenate(o)
 
 
 def pool(gt, seqs, n_per, with_gt=False):

@@ -23,6 +23,7 @@ from src.rewards import make_spectrum_fn, make_residual_loss
 from src.physics_guidance import make_dx_func
 from src.sequence_inference import build_triplets, grid_downsample_degrade, load_sequence
 from eval_ddpo import eff_resolution
+from psample import pbatched as batched     # all-chip sampling; PSAMPLE=0 restores serial
 
 MEAN, SIG, N, HIK0 = 0.0, 4.7988, 256, 32
 MEANDOSE_RUNG, STARTS, STEPS = 'K2x50', [100, 75], 50
@@ -73,13 +74,6 @@ if os.path.exists(OUTP):
     OUT = {k: old[k] for k in old.files}
     print(f"resume/merge: {len([k for k in OUT if k.endswith('||ret')])} cells already in file",
           flush=True)
-
-
-def batched(fn, x, seed, bs=16):
-    k = jax.random.PRNGKey(seed); o = []
-    for i in range(0, len(x), bs):
-        o.append(np.asarray(fn(jnp.asarray(x[i:i + bs]), jax.random.fold_in(k, i))))
-    return np.concatenate(o)
 
 
 POOL = {}
