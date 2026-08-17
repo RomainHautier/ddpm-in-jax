@@ -13,6 +13,13 @@ probe reward across regimes — training-pool information only) / EMA-of-final.
 import os, sys, json, pickle
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 sys.path.insert(0, '.'); sys.path.insert(0, 'src/ddpo_ft')
+LADDER_MODE = '--ladder' in sys.argv
+# --ladder (second pass, user 2026-08-17): grade film-final and the best-probe checkpoint
+# across the CASCADE depths and compare against the unconditioned model's ladder (already in
+# the npz, same pools/seeds). Rationale: the checkpoint's re_emb pathway is ACTIVE (embedding
+# shift ~ linear in the code, rms 0.089 at code=1) yet the K2 rows are identical to
+# unconditioned — a per-pass effect too small to see at one pass would compound across a
+# cascade's renoise-denoise passes. Superimposed ladders = pathway behaviorally null.
 import numpy as np, jax, jax.numpy as jnp
 from diag_guided_residual import make_kchain_ddim_sampler
 from ppo_claude import build_ddim_denoiser
@@ -27,6 +34,9 @@ from psample import pbatched as batched     # all-chip sampling; PSAMPLE=0 resto
 
 MEAN, SIG, N, HIK0 = 0.0, 4.7988, 256, 32
 MEANDOSE_RUNG, STARTS, STEPS = 'K2x50', [100, 75], 50
+LADDER = {'K3x86': ([150, 100, 50], 86), 'K4x110': ([200, 150, 100, 50], 110),
+          'K5x140': ([250, 200, 150, 100, 50], 140),
+          'K6x170': ([300, 250, 200, 150, 100, 50], 170)}
 GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {
     1000: dict(gt='flow-data/kf_2d_re1000_256_40seed.npy', seqs=list(range(4, 20)), per=8,
@@ -104,14 +114,14 @@ for R in ORDER:
     print(f"  Re={R}: {d['n']} val triplets", flush=True)
 
 
-def run_cell(R, nm):
-    key = f'{R}|{nm}|{MEANDOSE_RUNG}'
+def run_cell(R, nm, rung=MEANDOSE_RUNG, starts=STARTS, steps=STEPS):
+    key = f'{R}|{nm}|{rung}'
     if f'{key}||ret' in OUT:
         return dict(ret=float(OUT[f'{key}||ret']))
     d = POOL[R]
-    smp = make_kchain_ddim_sampler(film_unet, ab, STARTS, STEPS, d['dx'], 3.0, temp=0.30,
+    smp = make_kchain_ddim_sampler(film_unet, ab, starts, steps, d['dx'], 3.0, temp=0.30,
                                    cond_fn=RECODE, cond_visc=jnp.float32(1.0 / R))
-    sa, s1 = float(jnp.sqrt(ab[STARTS[0]])), float(jnp.sqrt(1.0 - ab[STARTS[0]]))
+    sa, s1 = float(jnp.sqrt(ab[starts[0]])), float(jnp.sqrt(1.0 - ab[starts[0]]))
     y = batched(lambda xb, kk: smp(PARAMS[nm], sa * xb + s1 * jax.random.normal(
         jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), d['recon'], 700)
     E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
@@ -125,11 +135,34 @@ def run_cell(R, nm):
     for f, v in vals.items():
         OUT[f'{key}||{f}'] = np.float32(v)
     OUT[f'{key}||E'] = E.astype(np.float32)
-    print(f"    Re={R} {nm:<12} @ {MEANDOSE_RUNG}  ret={vals['ret']:.3f}  "
+    print(f"    Re={R} {nm:<12} @ {rung}  ret={vals['ret']:.3f}  "
           f"place={vals['place']:.3f}  k*={vals['kstar']}  blind={vals['blind']:.3f}", flush=True)
     np.savez(OUTP, **OUT)
     return vals
 
+
+if LADDER_MODE:
+    print("\n===== FiLM LADDER vs the unconditioned ladder (same pools/seeds) =====", flush=True)
+    LMODELS = ['film-final'] + [nm for nm in MODELS if nm not in ('film-final', 'film-ema')
+                                and not nm.startswith('film-mid')]
+    for nm in LMODELS:
+        for rung, (starts, steps) in LADDER.items():
+            for R in ORDER:
+                if rung == 'K6x170' and R < 6000:
+                    continue
+                run_cell(R, nm, rung, starts, steps)
+            ref = {R: float(OUT[f'{R}|mr|{rung}||ret']) for R in ORDER
+                   if f'{R}|mr|{rung}||ret' in OUT}
+            row = {R: float(OUT[f'{R}|{nm}|{rung}||ret']) for R in ORDER
+                   if f'{R}|{nm}|{rung}||ret' in OUT}
+            print(f"\n  {nm} @ {rung}: " + "  ".join(f"Re{R}:{row[R]:.3f}" for R in row), flush=True)
+            if ref:
+                print(f"  mr (uncond) @ {rung}: " + "  ".join(f"Re{R}:{ref[R]:.3f}" for R in ref)
+                      + "   ratio: " + "  ".join(f"{row[R]/ref[R]:.3f}" for R in row if R in ref),
+                      flush=True)
+    np.savez(OUTP, **OUT)
+    print("\nMULTIREGIME-FILM LADDER COMPLETE", flush=True)
+    sys.exit(0)
 
 print(f"\n===== FiLM MEAN-DOSE ACCEPTANCE TEST @ {MEANDOSE_RUNG} =====", flush=True)
 uncond_row = {R: float(OUT[f'{R}|mr|{MEANDOSE_RUNG}||ret']) for R in ORDER}
