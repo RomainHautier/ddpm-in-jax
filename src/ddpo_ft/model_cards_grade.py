@@ -65,7 +65,7 @@ if os.path.exists(FLDP):
 
 for R in ORDER:
     cfg = REGIMES[R]
-    todo = [(nm, c) for c in LADDER for nm in MODELS if f'{R}|{nm}|{c}||resid_ratio' not in OUT]
+    todo = [(nm, c) for c in LADDER for nm in MODELS if f'{R}|{nm}|{c}||mse' not in OUT]
     if not todo and f'{R}|GT' in FLD:
         print(f"=== Re={R}: complete ===", flush=True); continue
     xg, xl = [], []
@@ -107,14 +107,16 @@ for R in ORDER:
             vals = dict(ret=E[HIK0:96].sum() / E_gt[HIK0:96].sum(),
                         place=np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1],
                         lowk=E[1:5].sum() / E_gt[1:5].sum(), kstar=eff_resolution(E, E_gt),
-                        resid_ratio=ry / rg, blind=E[10:96].sum() / A[10:96].sum())
+                        resid_ratio=ry / rg, blind=E[10:96].sum() / A[10:96].sum(),
+                        mse=np.mean((y[..., 1] - xg[..., 1]) ** 2) * SIG ** 2)
             for f, v in vals.items():
                 OUT[f'{key}||{f}'] = np.float32(v)
             OUT[f'{key}||E'] = E.astype(np.float32)
             FLD[key] = (y[0, ..., 1] * SIG).astype(np.float32)
             print(f"    {nm:<9} @ {cname}  ret={vals['ret']:.3f}  lowk={vals['lowk']:.3f}  "
                   f"place={vals['place']:.3f}  resid={vals['resid_ratio']:.2f}xGT  "
-                  f"k*={vals['kstar']}  blind={vals['blind']:.3f}", flush=True)
+                  f"mse={vals['mse']:.2f}  k*={vals['kstar']}  blind={vals['blind']:.3f}",
+                  flush=True)
             np.savez(OUTP, **OUT)
             np.savez_compressed(FLDP, **FLD)
 print("\nMODEL CARDS GRADE COMPLETE", flush=True)
