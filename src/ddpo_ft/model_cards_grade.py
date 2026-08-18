@@ -44,8 +44,8 @@ REGIMES = {
 ORDER = sorted(REGIMES)
 R1K = 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter{:04d}.pkl'
 R2K = 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter{:04d}.pkl'
-MODELS = {'base': None, 'r1k-149': R1K.format(149), 'r1k-449': R1K.format(449),
-          're2k-149': R2K.format(149), 're2k-599': R2K.format(599)}
+# user 2026-08-18: three checkpoints only - the base and the anchor's pick per fine-tune family
+MODELS = {'base': None, 'r1k-149': R1K.format(149), 're2k-149': R2K.format(149)}
 
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 spec_fn = make_spectrum_fn(N)
