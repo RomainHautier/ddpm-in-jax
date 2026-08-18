@@ -40,7 +40,7 @@ from psample import pbatched
 
 MEAN, SIG, N, HIK0 = 0.0, 4.7988, 256, 32
 STARTS, STEPS = [150, 100, 50], 86          # K3x86
-LS = [0.0, 0.5, 1.0, 2.0, 4.0]
+LS = [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]   # 8,16: far-regime extension (resume skips done cells)
 GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {2000: dict(gt=GEN.format(2000), anchor='base_results/regime_stats_re2000_obsfit_newgen.npz'),
            5000: dict(gt=GEN.format(5000), anchor='base_results/regime_stats_re5000_obsfit_gen.npz'),
