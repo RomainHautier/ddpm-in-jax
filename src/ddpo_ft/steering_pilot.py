@@ -10,7 +10,11 @@ taken through a SUM over the batch, so per-sample steering strength is batch-siz
 (make_dx_func's batch-mean convention makes lam depend on the sampler's batch — matched here by
 running per_dev=16, the historical serial batch).
 
-Sweep: BASE model (no fine-tune), K3x86 cascade, ls in {0, 0.5, 1, 2, 4}, at Re=2000/5000/8000.
+Sweep: three models x ls in {0, 0.5, 1, 2, 4} x Re=2000/5000/8000, all at the K3x86 cascade:
+- base (no fine-tune): steering as a REPLACEMENT for fine-tuning;
+- r1k-149 (fine-tuned for Re=1000, transported): steering as a TOP-UP — can ls make K3
+  sufficient where this model undershoots and currently needs K5?
+- re2k-149 (fine-tuned for Re=2000, the current best traveler): steering on the deployed pick.
 Every cell: blind score on the anchor's source pool (could the rule tune ls blind?) + the full
 battery on the standard val pool (did it actually work?).
 
@@ -42,7 +46,13 @@ REGIMES = {2000: dict(gt=GEN.format(2000), anchor='base_results/regime_stats_re2
            5000: dict(gt=GEN.format(5000), anchor='base_results/regime_stats_re5000_obsfit_gen.npz'),
            8000: dict(gt=GEN.format(8000), anchor='base_results/regime_stats_re8000_obsfit_gen.npz')}
 
+import pickle
+R1K = 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0149.pkl'
+R2K = 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl'
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
+MODELS = {'base': base_params,
+          'r1k-149': pickle.load(open(R1K, 'rb'))['params'],
+          're2k-149': pickle.load(open(R2K, 'rb'))['params']}
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
 _sa, _s1 = float(jnp.sqrt(ab[100])), float(jnp.sqrt(1.0 - ab[100]))
@@ -95,34 +105,35 @@ for R, c in REGIMES.items():
         jax.random.fold_in(kk, 1), xb.shape)), xl_src, 500)
     rc_val = B16(lambda xb, kk: ddim20(base_params, _sa * xb + _s1 * jax.random.normal(
         jax.random.fold_in(kk, 1), xb.shape)), xl_val, 500)
-    print(f"\n=== Re={R}: steering sweep, base model @ K3x86 ===", flush=True)
+    print(f"\n=== Re={R}: steering sweep @ K3x86 ===", flush=True)
     for ls in LS:
-        key = f'{R}|ls{ls:g}'
-        if f'{key}||ret' in OUT:
-            continue
         dx_comb = (dx_pde if ls == 0.0 else
                    jax.jit(lambda x, _l=ls: dx_pde(x) + (_l / 3.0) * dx_anchor(x)))
         smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx_comb, 3.0, temp=0.30)
-        yb = B16(lambda xb, kk: smp(base_params, sa3 * xb + s13 * jax.random.normal(
-            jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_src, 700)
-        blind = float(np.asarray(spec_fn(jnp.asarray(yb))).mean(0)[10:96].sum() / A[10:96].sum())
-        y = B16(lambda xb, kk: smp(base_params, sa3 * xb + s13 * jax.random.normal(
-            jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_val, 700)
-        E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
-        ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
-                                   for i in range(0, len(y), 32)]).mean())
-        Eh = local_hik_energy(y[..., 1] * SIG, HIK0, 6.0)
-        vals = dict(ret=E[HIK0:96].sum() / E_gt[HIK0:96].sum(),
-                    place=np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1],
-                    lowk=E[1:5].sum() / E_gt[1:5].sum(), kstar=eff_resolution(E, E_gt),
-                    resid_ratio=ry / rg, blind_src=blind,
-                    mse=np.mean((y[..., 1] - xg[..., 1]) ** 2) * SIG ** 2)
-        for f, v in vals.items():
-            OUT[f'{key}||{f}'] = np.float32(v)
-        OUT[f'{key}||E'] = E.astype(np.float32)
-        np.savez(OUTP, **OUT)
-        print(f"  ls={ls:<4g} blind(src)={blind:.3f}  ret={vals['ret']:.3f}  "
-              f"place={vals['place']:.3f}  lowk={vals['lowk']:.3f}  "
-              f"resid={vals['resid_ratio']:.2f}xGT  mse={vals['mse']:.2f}  k*={vals['kstar']}",
-              flush=True)
+        for nm, P in MODELS.items():
+            key = f'{R}|{nm}|ls{ls:g}'
+            if f'{key}||ret' in OUT:
+                continue
+            yb = B16(lambda xb, kk: smp(P, sa3 * xb + s13 * jax.random.normal(
+                jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_src, 700)
+            blind = float(np.asarray(spec_fn(jnp.asarray(yb))).mean(0)[10:96].sum() / A[10:96].sum())
+            y = B16(lambda xb, kk: smp(P, sa3 * xb + s13 * jax.random.normal(
+                jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_val, 700)
+            E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
+            ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
+                                       for i in range(0, len(y), 32)]).mean())
+            Eh = local_hik_energy(y[..., 1] * SIG, HIK0, 6.0)
+            vals = dict(ret=E[HIK0:96].sum() / E_gt[HIK0:96].sum(),
+                        place=np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1],
+                        lowk=E[1:5].sum() / E_gt[1:5].sum(), kstar=eff_resolution(E, E_gt),
+                        resid_ratio=ry / rg, blind_src=blind,
+                        mse=np.mean((y[..., 1] - xg[..., 1]) ** 2) * SIG ** 2)
+            for f, v in vals.items():
+                OUT[f'{key}||{f}'] = np.float32(v)
+            OUT[f'{key}||E'] = E.astype(np.float32)
+            np.savez(OUTP, **OUT)
+            print(f"  {nm:<9} ls={ls:<4g} blind(src)={blind:.3f}  ret={vals['ret']:.3f}  "
+                  f"place={vals['place']:.3f}  lowk={vals['lowk']:.3f}  "
+                  f"resid={vals['resid_ratio']:.2f}xGT  mse={vals['mse']:.2f}  k*={vals['kstar']}",
+                  flush=True)
 print("\nSTEERING PILOT COMPLETE", flush=True)
