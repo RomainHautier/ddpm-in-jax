@@ -28,11 +28,11 @@ DEPTHS = {'K2x50': ([100, 75], 50), 'K3x86': ([150, 100, 50], 86)}
 LS = [0.0, 1.0, 2.0, 4.0, 8.0]
 GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {2000: dict(gt=GEN.format(2000), seqs=list(range(8, 20)), per=10,
-                      anchor='base_results/regime_stats_re2000_obsfit_newgen.npz'),
+                      anchor='base_results/regime_stats_re2000_measured_train.npz'),
            5000: dict(gt=GEN.format(5000), seqs=list(range(8, 20)), per=10,
-                      anchor='base_results/regime_stats_re5000_obsfit_gen.npz'),
+                      anchor='base_results/regime_stats_re5000_measured_train.npz'),
            8000: dict(gt=GEN.format(8000), seqs=list(range(8, 20)), per=10,
-                      anchor='base_results/regime_stats_re8000_obsfit_gen.npz')}
+                      anchor='base_results/regime_stats_re8000_measured_train.npz')}
 
 G = np.load('base_results/multiregime_grade.npz', allow_pickle=True)
 rs_names = sorted({k.split('|')[1] for k in G.files if '|rs2k-' in k})

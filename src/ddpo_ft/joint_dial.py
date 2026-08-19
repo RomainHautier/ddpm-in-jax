@@ -24,9 +24,9 @@ STARTS, STEPS = [150, 100, 50], 86
 COMBOS = [(2.0, 0.0), (2.0, 12.0), (8.0, 0.0), (8.0, 12.0)]
 GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {5000: dict(gt=GEN.format(5000), seqs=list(range(8, 20)), per=10,
-                      anchor='base_results/regime_stats_re5000_obsfit_gen.npz'),
+                      anchor='base_results/regime_stats_re5000_measured_train.npz'),
            8000: dict(gt=GEN.format(8000), seqs=list(range(8, 20)), per=10,
-                      anchor='base_results/regime_stats_re8000_obsfit_gen.npz')}
+                      anchor='base_results/regime_stats_re8000_measured_train.npz')}
 NM = 're2k-149'
 P = pickle.load(open('monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl', 'rb'))['params']
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
