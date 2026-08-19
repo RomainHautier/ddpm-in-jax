@@ -78,6 +78,17 @@ for R, c in REGIMES.items():
         OUT[f'{R}|GT||Ep{p}'] = np.percentile(Eg_all, p, axis=0).astype(np.float32)
     recon = B16(lambda xb, kk: ddim20(base_params, _sa * xb + _s1 * jax.random.normal(
         jax.random.fold_in(kk, 1), xb.shape)), xl, 500)
+    # many-frame LR/recon reference rows (user diagnostic 2026-08-19): how much placement the
+    # observation itself carries per band, and how much the recon inherits from it
+    lr_maps = band_maps(xl[..., 1] * SIG)
+    rc_maps = band_maps(recon[..., 1] * SIG)
+    for tag, (a, b) in {'LRvsGT': (lr_maps, gt_maps), 'reconvsGT': (rc_maps, gt_maps),
+                        'reconvsLR': (rc_maps, lr_maps)}.items():
+        bp = np.array([np.corrcoef(a[i].ravel(), b[i].ravel())[0, 1]
+                       for i in range(len(BANDS))], np.float32)
+        OUT[f'{R}|{tag}||bp'] = bp
+        print(f"  {tag:<10} bands " + " ".join(f"{x:.3f}" for x in bp), flush=True)
+    np.savez(OUTP, **OUT)
     print(f"\n=== Re={R}: {len(xg)} triplets ===", flush=True)
     for cname, (starts, steps) in LADDER.items():
         smp = make_kchain_ddim_sampler(ddpm.unet, ab, starts, steps, dx, 3.0, temp=0.30)
