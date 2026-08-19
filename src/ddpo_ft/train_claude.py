@@ -57,6 +57,11 @@ RE_CFG = {
                train_seqs=[0, 1, 2, 3], probe_seq=4),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
                train_seqs=[8, 9, 10, 11], probe_seq=0),
+    # Re=8000 (Track-A statistics-calibrated specialist, 2026-08-19): single-pipeline gen data,
+    # measured GT-statistics anchor; val/test = seqs 8-19 stay untouched.
+    8000: dict(gt="flow-data/generated/gen_fnons_re8000_kf_1024to256_20seq.npy",
+               stats="base_results/regime_stats_re8000_measured_train.npz",
+               train_seqs=[0, 1, 2, 3, 4, 5, 6, 7], probe_seq=8),
     # Re=10000: CLEAN disjoint split. NOTE the Re=2000/500 entries above train on [8,9,10,11] while
     # the eval driver uses test=10..19 -> seqs 10,11 leak (measured impact -0.013, inside eval
     # noise, because DDPO uses the pool as a state distribution rather than fitting targets — but
