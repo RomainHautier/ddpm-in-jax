@@ -121,8 +121,13 @@ for R, c in REGIMES.items():
                 ys, k0 = [], jax.random.PRNGKey(700)
                 B = 64
                 for i in range(0, len(recon), B):
-                    ys.append(np.asarray(run_chunk(xl[i:i + B], recon[i:i + B],
-                                                   jax.random.fold_in(k0, i))))
+                    xb_l, xb_r = xl[i:i + B], recon[i:i + B]
+                    pad = B - len(xb_r)          # pad tail chunk -> ONE compiled shape per cell
+                    if pad:
+                        xb_l = np.concatenate([xb_l, np.repeat(xb_l[-1:], pad, 0)])
+                        xb_r = np.concatenate([xb_r, np.repeat(xb_r[-1:], pad, 0)])
+                    out = np.asarray(run_chunk(xb_l, xb_r, jax.random.fold_in(k0, i)))
+                    ys.append(out[:B - pad] if pad else out)
                 y = np.concatenate(ys)
                 E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
                 ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()

@@ -95,19 +95,15 @@ for R, c in REGIMES.items():
     d = np.load(c['anchor'])
     stats = {k: d[k] for k in d.files}
     A = stats['spec_ref']
-    src_seqs = eval(d['obs_source'].item().decode().split('|seqs=')[1])
     dx_pde = make_dx_func(n=N, re=float(R), std=SIG, mean=MEAN)
     dx_anchor = make_anchor_dose_dx(stats)
     # pools
-    _, xl_src = pool(c['gt'], src_seqs, 8)
     xg, xl_val = pool(c['gt'], list(range(8, 20)), 10, with_gt=True)
     resid_fn = jax.jit(make_residual_loss(n=N, re=float(R), std=SIG, mean=0.0))
     E_gt = np.asarray(spec_fn(jnp.asarray(xg))).mean(0)
     Ehg = local_hik_energy(xg[..., 1] * SIG, HIK0, 6.0)
     rg = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(xg[i:i + 32]))).ravel()
                                for i in range(0, len(xg), 32)]).mean())
-    rc_src = B16(lambda xb, kk: ddim20(base_params, _sa * xb + _s1 * jax.random.normal(
-        jax.random.fold_in(kk, 1), xb.shape)), xl_src, 500)
     rc_val = B16(lambda xb, kk: ddim20(base_params, _sa * xb + _s1 * jax.random.normal(
         jax.random.fold_in(kk, 1), xb.shape)), xl_val, 500)
     print(f"\n=== Re={R}: steering sweep @ K3x86 ===", flush=True)
@@ -119,9 +115,6 @@ for R, c in REGIMES.items():
             key = f'{R}|{nm}|ls{ls:g}'
             if f'{key}||ret' in OUT:
                 continue
-            yb = B16(lambda xb, kk: smp(P, sa3 * xb + s13 * jax.random.normal(
-                jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_src, 700)
-            blind = float(np.asarray(spec_fn(jnp.asarray(yb))).mean(0)[10:96].sum() / A[10:96].sum())
             y = B16(lambda xb, kk: smp(P, sa3 * xb + s13 * jax.random.normal(
                 jax.random.fold_in(kk, 1), xb.shape), jax.random.fold_in(kk, 2)), rc_val, 700)
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
@@ -131,7 +124,8 @@ for R, c in REGIMES.items():
             vals = dict(ret=E[HIK0:96].sum() / E_gt[HIK0:96].sum(),
                         place=np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1],
                         lowk=E[1:5].sum() / E_gt[1:5].sum(), kstar=eff_resolution(E, E_gt),
-                        resid_ratio=ry / rg, blind_src=blind,
+                        resid_ratio=ry / rg,
+                        blind_src=float(E[10:96].sum() / A[10:96].sum()),  # statmatch vs measured
                         mse=np.mean((y[..., 1] - xg[..., 1]) ** 2) * SIG ** 2)
             for f, v in vals.items():
                 OUT[f'{key}||{f}'] = np.float32(v)
