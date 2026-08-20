@@ -131,7 +131,7 @@ for R, c in REGIMES.items():
                 OUT[f'{key}||{f}'] = np.float32(v)
             OUT[f'{key}||E'] = E.astype(np.float32)
             np.savez(OUTP, **OUT)
-            print(f"  {nm:<9} ls={ls:<4g} blind(src)={blind:.3f}  ret={vals['ret']:.3f}  "
+            print(f"  {nm:<9} ls={ls:<4g} statmatch={vals['blind_src']:.3f}  ret={vals['ret']:.3f}  "
                   f"place={vals['place']:.3f}  lowk={vals['lowk']:.3f}  "
                   f"resid={vals['resid_ratio']:.2f}xGT  mse={vals['mse']:.2f}  k*={vals['kstar']}",
                   flush=True)
