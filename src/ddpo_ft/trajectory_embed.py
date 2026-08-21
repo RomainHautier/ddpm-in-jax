@@ -133,6 +133,13 @@ fitB = np.concatenate([BN['GT'], BN['recon']])
 muB = fitB.mean(0); Ub = np.linalg.svd(fitB - muB, full_matrices=False)[2][:2]
 EMB_B = {k: (v - muB) @ Ub.T for k, v in BN.items()}
 
+# field renders: same two held-out samples under every variant (identical noise keys)
+FLDS = {'GT': (xg[:2, ..., 1] * SIG), 'LR': (xl[:2, ..., 1] * SIG),
+        'recon': (np.asarray(recon[:2, ..., 1]) * SIG)}
+for tag in STAGES:
+    FLDS[tag] = STAGES[tag][-1][:2, ..., 1] * SIG        # final-stage x0 of the cascade
+np.savez_compressed('base_results/trajectory_fields.npz',
+                    **{k: v.astype(np.float32) for k, v in FLDS.items()})
 np.savez('base_results/trajectory_embed.npz',
          **{f'A|{k}': v for k, v in EMB_A.items()},
          **{f'B|{k}': v for k, v in EMB_B.items()})
