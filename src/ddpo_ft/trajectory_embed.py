@@ -52,25 +52,64 @@ def dose_loss(x): return jnp.sum(0.5 * d1(x) + 3.0 * d2(x))
 dx_anchor = jax.jit(jax.grad(dose_loss))
 dx_pde = make_dx_func(n=N, re=float(R), std=SIG, mean=MEAN)
 
+# five guidance variants, IDENTICAL random keys throughout (same folds, same shapes):
+# none / residual-only / placement-only / reward(dose)-only / all three.
+fy2 = np.fft.fftfreq(N) * N
+km2 = np.sqrt(fy2[:, None] ** 2 + fy2[None, :] ** 2)
+gs2 = jnp.asarray(np.exp(-2.0 * (np.pi * 6.0) ** 2 *
+                         ((fy2[:, None] / N) ** 2 + (fy2[None, :] / N) ** 2)))
+PB2 = [jnp.asarray(((km2 >= lo) & (km2 < hi)).astype(np.float32)) for lo, hi in
+       [(16, 32), (32, 64)]]
+
+def nmaps2(w):
+    F = jnp.fft.fft2(w)
+    out = []
+    for m in PB2:
+        bp = jnp.real(jnp.fft.ifft2(F * m))
+        e = jnp.real(jnp.fft.ifft2(jnp.fft.fft2(bp ** 2) * gs2))
+        out.append(e / (jnp.mean(e, axis=(-2, -1), keepdims=True) + 1e-12))
+    return out
+
+def make_place_dx2(refs):
+    refs = [jax.lax.stop_gradient(r) for r in refs]
+    def loss(x):
+        ms = nmaps2(x[..., 1] * SIG)
+        return sum(jnp.sum((m - r) ** 2) for m, r in zip(ms, refs)) / (N * N)
+    return jax.grad(loss)
+
+VARIANTS = {          # (use_pde, ls, mu); sampler lam=3, dx composed as (lp/3)pde + (ls/3)dose + (mu/3)place
+    'none':      (0.0, 0.0, 0.0),
+    'residual':  (3.0, 0.0, 0.0),
+    'placement': (0.0, 0.0, 3.0),
+    'reward':    (0.0, 16.0, 0.0),
+    'all3':      (3.0, 16.0, 3.0),
+}
 STAGES = {}
-for tag, ls in (('off', 0.0), ('on', 16.0)):
-    dx = dx_pde if ls == 0 else jax.jit(lambda x, _l=ls: dx_pde(x) + (_l / 3.0) * dx_anchor(x))
-    smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, 3.0, temp=0.30,
-                                   return_stages=True)
+for tag, (lp, ls, mu) in VARIANTS.items():
     outs = []
     k0 = jax.random.PRNGKey(700)
     for i in range(0, len(recon), 64):
         xb = recon[i:i + 64]
+        xb_l = xl[i:i + 64]
+        pd = make_place_dx2(nmaps2(jnp.asarray(xb_l[..., 1]) * SIG)) if mu > 0 else None
+        def dx(x, _lp=lp, _ls=ls, _mu=mu, _pd=pd):
+            g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * dx_anchor(x)
+            if _pd is not None:
+                g = g + (_mu / 3.0) * _pd(x)
+            return g
+        lam = 3.0 if (lp + ls + mu) > 0 else 0.0
+        smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam, temp=0.30,
+                                       return_stages=True)
         st = smp(P, sa3 * jnp.asarray(xb) + s13 * jax.random.normal(
             jax.random.fold_in(jax.random.fold_in(k0, i), 1), xb.shape),
             jax.random.fold_in(jax.random.fold_in(k0, i), 2))
-        outs.append([np.asarray(s) for s in st])
+        outs.append([np.asarray(x) for x in st])
     STAGES[tag] = [np.concatenate([o[j] for o in outs]) for j in range(len(STARTS))]
-    print(f"{tag}: {len(STAGES[tag])} stages of {STAGES[tag][0].shape}", flush=True)
+    print(f"{tag}: stages {STAGES[tag][0].shape}", flush=True)
 
 # ---- embedding (a): log-spectra ----
 def logspec(x): return np.log(np.asarray(spec_fn(jnp.asarray(x)))[:, 1:127] + 1e-12)
-OBJ = {'GT': xg, 'recon': recon,
+OBJ = {'GT': xg, 'LR': xl, 'recon': recon,
        **{f'{tag}_s{j+1}': STAGES[tag][j] for tag in STAGES for j in range(3)}}
 LS_ = {k: logspec(v) for k, v in OBJ.items()}
 fitA = np.concatenate([LS_['GT'], LS_['recon']])
