@@ -127,10 +127,13 @@ for R in REGIMES:
     # ---- embedding (b): UNet bottleneck at t=1, spatial-mean, PCA ----
     def bottleneck(x):
         out = []
-        for i in range(0, len(x), 32):
-            _, st = ddpm.unet.apply({'params': base_params}, jnp.asarray(x[i:i + 32]),
-                                    jnp.full((min(32, len(x) - i),), 1, jnp.int32), train=False,
-                                    capture_intermediates=True, mutable=['intermediates'])
+        # capture ONLY the attention output: capture_intermediates=True hoards EVERY layer's
+        # activations (tens of GB per batch) — the true cause of all three regime OOMs.
+        _filt = lambda mdl, method: mdl.__class__.__name__ == 'SelfAttention'
+        for i in range(0, len(x), 16):
+            _, st = ddpm.unet.apply({'params': base_params}, jnp.asarray(x[i:i + 16]),
+                                    jnp.full((min(16, len(x) - i),), 1, jnp.int32), train=False,
+                                    capture_intermediates=_filt, mutable=['intermediates'])
             inter = st['intermediates']
             key = [k for k in inter if 'SelfAttention' in k][0]
             z = np.asarray(inter[key]['__call__'][0])
