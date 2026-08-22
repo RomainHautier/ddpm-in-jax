@@ -134,7 +134,8 @@ for R, c in REGIMES.items():
                         g = g + (_mu / 3.0) * pgrad(x)
                     return g
                 lam = 3.0 if (_lp + _ls + _mu) > 0 else 0.0
-                smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam, temp=0.30)
+                smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam,
+                                               temp=0.30, jit=False)
                 return smp(_P, sa3 * rc + s13 * jax.random.normal(
                     jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2))
             y = B16(run6, xpack, 700)

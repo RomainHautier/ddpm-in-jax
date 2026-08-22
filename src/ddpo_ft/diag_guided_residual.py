@@ -116,7 +116,7 @@ def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
 
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
                              eta=1.0, temp=1.0, return_stages=False, stride=None,
-                             brake_func=None, mu=0.0, cond_fn=None, cond_visc=None):
+                             brake_func=None, mu=0.0, cond_fn=None, cond_visc=None, jit=True):
     # cond_fn/cond_visc (ConditionalUnet only): condRes = cond_fn(x, cond_visc) is computed at the
     # CURRENT state and fed to the network at every eps prediction — the inference mirror of the
     # ddim_cond_fn training path. cond_visc is baked per sampler instance (like dx_func's Re).
@@ -180,7 +180,9 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
                 sa, s1 = renoise_coef[j]
                 x = sa * x0 + s1 * jax.random.normal(k_re, x0.shape)
         return tuple(stages) if return_stages else x0
-    return jax.jit(sample)
+    # jit=False for callers inside pmap whose dx_func closes over pmap tracers (a jitted
+    # closure over tracers is a leak error); tracing inline is equivalent there.
+    return jax.jit(sample) if jit else sample
 
 
 def main(ckpt, seqs="32,36", frames=6, t_start=100, re=1000, gt=None, grid_factor=4, seed=1,
