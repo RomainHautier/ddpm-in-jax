@@ -26,6 +26,10 @@ GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
 REGIMES = {2000: 'base_results/regime_stats_re2000_measured_train.npz',
            5000: 'base_results/regime_stats_re5000_measured_train.npz',
            8000: 'base_results/regime_stats_re8000_measured_train.npz'}
+# HBM discipline (the 3-regime x 5-variant single process OOMed): one regime per process.
+if '--re' in sys.argv:
+    _r = int(sys.argv[sys.argv.index('--re') + 1])
+    REGIMES = {_r: REGIMES[_r]}
 P = pickle.load(open('monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl', 'rb'))['params']
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 spec_fn = make_spectrum_fn(N)
@@ -148,6 +152,7 @@ for R in REGIMES:
              **{f'{R}|A|{k}': v for k, v in EMB_A.items()},
              **{f'{R}|B|{k}': v for k, v in EMB_B.items()})
 
-np.savez('base_results/trajectory_embed.npz', **SAVE)
-np.savez_compressed('base_results/trajectory_fields.npz', **FSAVE)
+suf = f"_{list(REGIMES)[0]}" if len(REGIMES) == 1 else ''
+np.savez(f'base_results/trajectory_embed{suf}.npz', **SAVE)
+np.savez_compressed(f'base_results/trajectory_fields{suf}.npz', **FSAVE)
 print("TRAJECTORY EMBED COMPLETE", flush=True)
