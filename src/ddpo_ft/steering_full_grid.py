@@ -3,7 +3,7 @@ strategies x ALL NINE regimes, fixed K3x86 — the quantification of what each g
 buys, everywhere. Measured (Track-A) targets throughout; the two-sided dose gradient pushes
 down where a model runs hot and up where it runs cold, so lower regimes are covered by the
 same machinery. Strategies: none (lam=0) / residual (lp=3) / reward-dose (ls=8) /
-placement (mu=3) / all three (lp3+ls8+mu3). Models: r1k-449 and re2k-149.
+placement (mu=3) / all three (lp3+ls8+mu3). Models: r1k-449, re2k-149, and rs8kkl-799 (the KL-loosened measured-anchor Re=8000 specialist - tests whether its fine-tune worked in-distribution once steering tops up the under-dose, and how it transfers DOWN under each strategy).
 Per cell: full battery + spectrum (per-band retention derivable). Keys
 '{R}|{model}|SG{strategy}' in base_results/steering_full_grid.npz. Resume-aware.
 """
@@ -36,9 +36,11 @@ STRATS = {'none': (0.0, 0.0, 0.0), 'residual': (3.0, 0.0, 0.0), 'reward': (0.0, 
           'placement': (0.0, 0.0, 3.0), 'all3': (3.0, 8.0, 3.0)}
 R1K = 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pkl'
 R2K = 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl'
+R8K = 'monitoring/ddpo_re8000_rs_kl3_ckpts/ddpo_re1000_iter0799.pkl'
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 MODELS = {'r1k-449': pickle.load(open(R1K, 'rb'))['params'],
-          're2k-149': pickle.load(open(R2K, 'rb'))['params']}
+          're2k-149': pickle.load(open(R2K, 'rb'))['params'],
+          'rs8kkl-799': pickle.load(open(R8K, 'rb'))['params']}
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
 _sa, _s1 = float(jnp.sqrt(ab[100])), float(jnp.sqrt(1.0 - ab[100]))
