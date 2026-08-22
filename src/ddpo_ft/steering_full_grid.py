@@ -116,28 +116,33 @@ for R, c in REGIMES.items():
     # 4-chip parallel strategy loop (v1 ran single-chip at ~11 min/cell): recon+LR packed as
     # 6 channels so the pmapped fn can build per-sample placement refs from its own chunk.
     xpack = np.concatenate([np.asarray(recon), xl], axis=-1)
+
+    def ploss(x, refs):
+        ms = nmaps(x[..., 1] * SIG)
+        return sum(jnp.sum((m - jax.lax.stop_gradient(r)) ** 2)
+                   for m, r in zip(ms, refs)) / (N * N)
+    pgrad = jax.grad(ploss)
     for sg, (lp, ls, mu) in STRATS.items():
+        # sampler built OUTSIDE the pmap trace (its build-time float() constants must stay
+        # concrete); per-chunk placement refs enter through the aux ARGUMENT.
+        def dx(x, aux, _lp=lp, _ls=ls, _mu=mu):
+            g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * dx_dose(x)
+            if _mu > 0:
+                g = g + (_mu / 3.0) * pgrad(x, aux)
+            return g
+        lam = 3.0 if (lp + ls + mu) > 0 else 0.0
+        smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam,
+                                       temp=0.30, jit=False, aux_dx=True)
         for nm, P in MODELS.items():
             key = f'{R}|{nm}|SG{sg}'
             if f'{key}||ret' in OUT:
                 continue
-            def run6(xb6, kk, _lp=lp, _ls=ls, _mu=mu, _P=P):
+            def run6(xb6, kk, _P=P, _smp=smp):
                 rc, lr = xb6[..., :3], xb6[..., 3:]
-                refs = [jax.lax.stop_gradient(r) for r in nmaps(lr[..., 1] * SIG)]
-                def ploss(x):
-                    ms = nmaps(x[..., 1] * SIG)
-                    return sum(jnp.sum((m - r) ** 2) for m, r in zip(ms, refs)) / (N * N)
-                pgrad = jax.grad(ploss)
-                def dx(x):
-                    g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * dx_dose(x)
-                    if _mu > 0:
-                        g = g + (_mu / 3.0) * pgrad(x)
-                    return g
-                lam = 3.0 if (_lp + _ls + _mu) > 0 else 0.0
-                smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam,
-                                               temp=0.30, jit=False)
-                return smp(_P, sa3 * rc + s13 * jax.random.normal(
-                    jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2))
+                refs = tuple(nmaps(lr[..., 1] * SIG))
+                return _smp(_P, sa3 * rc + s13 * jax.random.normal(
+                    jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2),
+                    aux=refs)
             y = B16(run6, xpack, 700)
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
             ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()

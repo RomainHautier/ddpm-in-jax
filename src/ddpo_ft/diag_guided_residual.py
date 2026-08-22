@@ -116,7 +116,8 @@ def make_spec_brake_grad(log_spec_ref, kband=(32, 96), n=256):
 
 def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, lam,
                              eta=1.0, temp=1.0, return_stages=False, stride=None,
-                             brake_func=None, mu=0.0, cond_fn=None, cond_visc=None, jit=True):
+                             brake_func=None, mu=0.0, cond_fn=None, cond_visc=None, jit=True,
+                             aux_dx=False):
     # cond_fn/cond_visc (ConditionalUnet only): condRes = cond_fn(x, cond_visc) is computed at the
     # CURRENT state and fed to the network at every eps prediction — the inference mirror of the
     # ddim_cond_fn training path. cond_visc is baked per sampler instance (like dx_func's Re).
@@ -144,7 +145,7 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
     renoise_coef = [(float(jnp.sqrt(alpha_bar[S])), float(jnp.sqrt(1.0 - alpha_bar[S])))
                     for S in starts[1:]]
 
-    def _x0hat(params, x, t):
+    def _x0hat(params, x, t, aux=None):
         t_arr = jnp.full((x.shape[0],), t, jnp.int32)
         if cond_fn is not None:
             eps = unet.apply({"params": params}, x, t_arr, train=False,
@@ -153,17 +154,20 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
             eps = unet.apply({"params": params}, x, t_arr, train=False)
         x0 = (x - jnp.sqrt(1.0 - alpha_bar[t]) * eps) / jnp.sqrt(alpha_bar[t])
         if lam > 0:
-            x0 = x0 - lam * dx_func(x0)
+            # aux_dx: per-call data (e.g. per-chunk placement refs) enters as an ARGUMENT so
+            # callers under pmap never close the sampler over tracers (build-time float()
+            # constants above would abstract-trace and die).
+            x0 = x0 - lam * (dx_func(x0, aux) if aux_dx else dx_func(x0))
         if brake_func is not None and mu > 0:
             x0 = x0 - mu * brake_func(x0)                     # spectral hinge-brake (see make_spec_brake_grad)
         return x0, eps
 
-    def sample(params, x_start, key):
+    def sample(params, x_start, key, aux=None):
         def step(carry, ts):
             x, k = carry
             tc, tn = ts
             k, sk = jax.random.split(k)
-            x0, eps = _x0hat(params, x, tc)
+            x0, eps = _x0hat(params, x, tc, aux)
             ab_c, ab_n = alpha_bar[tc], alpha_bar[tn]
             sigma = eta * jnp.sqrt((1.0 - ab_n) / (1.0 - ab_c)) * jnp.sqrt(1.0 - ab_c / ab_n)
             mean = jnp.sqrt(ab_n) * x0 + jnp.sqrt(1.0 - ab_n - sigma ** 2) * eps
@@ -174,7 +178,7 @@ def make_kchain_ddim_sampler(unet, alpha_bar, chain_starts, n_steps, dx_func, la
         for j, (tc, tn, tl) in enumerate(pairs):
             key, k_scan, k_re = jax.random.split(key, 3)
             (x_low, _), _ = jax.lax.scan(step, (x, k_scan), (tc, tn))
-            x0, _ = _x0hat(params, x_low, tl)
+            x0, _ = _x0hat(params, x_low, tl, aux)
             stages.append(x0)                                  # output of chain j+1 (before renoise)
             if j < len(pairs) - 1:
                 sa, s1 = renoise_coef[j]
