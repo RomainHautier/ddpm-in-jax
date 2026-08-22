@@ -104,7 +104,7 @@ if os.path.exists(OUTP):
     old = np.load(OUTP, allow_pickle=True); OUT = {k: old[k] for k in old.files}
 
 for R, c in REGIMES.items():
-    if all(f'{R}|{nm}|SG{sg}||ret' in OUT for nm in MODELS for sg in STRATS):
+    if all(f'{R}|{nm}|SG{sg}{KSUF}||ret' in OUT for nm in MODELS for sg in STRATS):
         continue
     d = np.load(c['anchor'])
     stats = {k: d[k] for k in d.files}
