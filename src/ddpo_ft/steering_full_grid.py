@@ -37,10 +37,12 @@ STRATS = {'none': (0.0, 0.0, 0.0), 'residual': (3.0, 0.0, 0.0), 'reward': (0.0, 
 R1K = 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pkl'
 R2K = 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl'
 R8K = 'monitoring/ddpo_re8000_rs_kl3_ckpts/ddpo_re1000_iter0799.pkl'
+PRK = 'monitoring/ddpo_re2000_placereward_ckpts/ddpo_re1000_iter0549.pkl'
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 MODELS = {'r1k-449': pickle.load(open(R1K, 'rb'))['params'],
           're2k-149': pickle.load(open(R2K, 'rb'))['params'],
-          'rs8kkl-799': pickle.load(open(R8K, 'rb'))['params']}
+          'rs8kkl-799': pickle.load(open(R8K, 'rb'))['params'],
+          'pr2k-549': pickle.load(open(PRK, 'rb'))['params']}
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
 _sa, _s1 = float(jnp.sqrt(ab[100])), float(jnp.sqrt(1.0 - ab[100]))
