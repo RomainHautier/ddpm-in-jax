@@ -113,32 +113,31 @@ for R, c in REGIMES.items():
         jax.random.fold_in(kk, 1), xb.shape)), xl, 500)
     OUT[f'{R}|GT||E'] = E_gt.astype(np.float32)
     print(f"\n=== Re={R}: full strategy grid ===", flush=True)
+    # 4-chip parallel strategy loop (v1 ran single-chip at ~11 min/cell): recon+LR packed as
+    # 6 channels so the pmapped fn can build per-sample placement refs from its own chunk.
+    xpack = np.concatenate([np.asarray(recon), xl], axis=-1)
     for sg, (lp, ls, mu) in STRATS.items():
         for nm, P in MODELS.items():
             key = f'{R}|{nm}|SG{sg}'
             if f'{key}||ret' in OUT:
                 continue
-            ys, k0 = [], jax.random.PRNGKey(700)
-            B = 64
-            for i in range(0, len(recon), B):
-                xb_l, xb_r = xl[i:i + B], recon[i:i + B]
-                pad = B - len(xb_r)
-                if pad:
-                    xb_l = np.concatenate([xb_l, np.repeat(xb_l[-1:], pad, 0)])
-                    xb_r = np.concatenate([xb_r, np.repeat(xb_r[-1:], pad, 0)])
-                pd = make_place_dx(nmaps(jnp.asarray(xb_l[..., 1]) * SIG)) if mu > 0 else None
-                def dx(x, _lp=lp, _ls=ls, _pd=pd, _mu=mu):
+            def run6(xb6, kk, _lp=lp, _ls=ls, _mu=mu, _P=P):
+                rc, lr = xb6[..., :3], xb6[..., 3:]
+                refs = [jax.lax.stop_gradient(r) for r in nmaps(lr[..., 1] * SIG)]
+                def ploss(x):
+                    ms = nmaps(x[..., 1] * SIG)
+                    return sum(jnp.sum((m - r) ** 2) for m, r in zip(ms, refs)) / (N * N)
+                pgrad = jax.grad(ploss)
+                def dx(x):
                     g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * dx_dose(x)
-                    if _pd is not None:
-                        g = g + (_mu / 3.0) * _pd(x)
+                    if _mu > 0:
+                        g = g + (_mu / 3.0) * pgrad(x)
                     return g
-                lam = 3.0 if (lp + ls + mu) > 0 else 0.0
+                lam = 3.0 if (_lp + _ls + _mu) > 0 else 0.0
                 smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam, temp=0.30)
-                out = np.asarray(smp(P, sa3 * jnp.asarray(xb_r) + s13 * jax.random.normal(
-                    jax.random.fold_in(jax.random.fold_in(k0, i), 1), xb_r.shape),
-                    jax.random.fold_in(jax.random.fold_in(k0, i), 2)))
-                ys.append(out[:B - pad] if pad else out)
-            y = np.concatenate(ys)
+                return smp(_P, sa3 * rc + s13 * jax.random.normal(
+                    jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2))
+            y = B16(run6, xpack, 700)
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
             ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
                                        for i in range(0, len(y), 32)]).mean())
