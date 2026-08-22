@@ -142,7 +142,8 @@ def build_ddim_denoiser(unet, alpha_bar, t_start, n_steps):
 
 # ============================================================ stochastic-DDIM policy (eta > 0)
 
-def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0, cond_fn=None, visc=None):
+def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0, cond_fn=None, visc=None,
+                  guide_fn=None):
     """The stochastic-DDIM reverse-step policy pi(x_tn | x_tc) over the subsampled schedule step
     tc -> tn (tc > tn): return (mean_theta, std). Song et al. 2020 eq. 16 with the model's x0:
         x0_hat = (x_tc - sqrt(1-ab_tc) eps) / sqrt(ab_tc)
@@ -163,6 +164,11 @@ def ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta=1.0, temp=1.0, cond_
         eps = unet.apply({"params": params}, x_t, t_arr, train=False)
     ab_c, ab_n = alpha_bar[tc], alpha_bar[tn]
     x0 = (x_t - jnp.sqrt(1.0 - ab_c) * eps) / jnp.sqrt(ab_c)
+    if guide_fn is not None:
+        # STEERED TRAINING POLICY (2026-08-22): deterministic x0-shift, the exact inference
+        # guidance convention. Policy mean = mean(model, guidance); log-probs stay exact as
+        # long as rollout and loss use the same guide_fn.
+        x0 = x0 - guide_fn(x0, visc)
     sigma = eta * jnp.sqrt((1.0 - ab_n) / (1.0 - ab_c)) * jnp.sqrt(1.0 - ab_c / ab_n)
     mean = jnp.sqrt(ab_n) * x0 + jnp.sqrt(1.0 - ab_n - sigma ** 2) * eps
     return mean, temp * sigma
@@ -196,7 +202,7 @@ def kchain_schedules(chain_starts, n_steps, stride=None):
 
 
 def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, chain_starts=None,
-                       stride=None, cond_fn=None):
+                       stride=None, cond_fn=None, guide_fn=None):
     """DDIM analogue of build_rollout: rollout(params, x_start, key) -> (states, actions, logp, x0)
     over the len(seq)-1 stochastic pairs of the subsampled schedule, plus a FINAL deterministic
     x0-prediction at seq[-1] for the reward — OUTSIDE the policy (no action, no log-prob stored).
@@ -226,7 +232,8 @@ def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, cha
             x, k = carry
             tc, tn = ts
             k, sk = jax.random.split(k)
-            mean, std = ddim_mean_std(unet, params, x, tc, tn, alpha_bar, eta, temp, cond_fn, visc)
+            mean, std = ddim_mean_std(unet, params, x, tc, tn, alpha_bar, eta, temp, cond_fn, visc,
+                                      guide_fn)
             a = mean + std * jax.random.normal(sk, x.shape)    # sample x_tn (every pair stochastic)
             return (a, k), (x, a, gaussian_logprob(mean, std, a))
 
@@ -238,7 +245,10 @@ def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, cha
                                  condRes=cond_fn(x_low, visc))
             else:
                 eps = unet.apply({"params": params}, x_low, t_arr, train=False)
-            return (x_low - jnp.sqrt(1.0 - alpha_bar[t_last]) * eps) / jnp.sqrt(alpha_bar[t_last])
+            x0p = (x_low - jnp.sqrt(1.0 - alpha_bar[t_last]) * eps) / jnp.sqrt(alpha_bar[t_last])
+            if guide_fn is not None:
+                x0p = x0p - guide_fn(x0p, visc)
+            return x0p
 
         x, outs = x_start, []
         for j, (tc, tn, tl) in enumerate(pairs):               # small python loop; scan inside
@@ -255,13 +265,13 @@ def build_ddim_rollout(unet, alpha_bar, t_start, n_steps, eta=1.0, temp=1.0, cha
         states, actions, logp = (jnp.concatenate([o[i] for o in outs], axis=0) for i in range(3))
         return states, actions, logp, x0    # (T',B,...) stacked, T' = sum of per-chain pairs
 
-    if cond_fn is not None:
+    if cond_fn is not None or guide_fn is not None:
         return _rollout                                        # (params, x_start, key, visc)
     return lambda params, x_start, key: _rollout(params, x_start, key, None)
 
 
 def build_ddim_loss(unet, alpha_bar, t_start, n_steps, clip_eps=0.2, eta=1.0, kl_coef=0.0, temp=1.0,
-                    chain_starts=None, stride=None, cond_fn=None):
+                    chain_starts=None, stride=None, cond_fn=None, guide_fn=None):
     """DDIM analogue of build_loss: identical PPO clipped surrogate (with jax.checkpoint), but the
     scan carries the (t_cur, t_nxt) schedule pairs and the policy is ddim_mean_std. Must be built
     with the SAME (t_start, n_steps, eta, temp, chain_starts) as the rollout, or the stored
@@ -282,21 +292,22 @@ def build_ddim_loss(unet, alpha_bar, t_start, n_steps, clip_eps=0.2, eta=1.0, kl
 
         def step(carry, d):
             x_t, a_t, lpo, tc, tn = d
-            mean, std = ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta, temp, cond_fn, visc)
+            mean, std = ddim_mean_std(unet, params, x_t, tc, tn, alpha_bar, eta, temp, cond_fn, visc,
+                                      guide_fn)
             logp = gaussian_logprob(mean, std, a_t)                    # (B,) under current theta
             ratio = jnp.exp(logp - lpo)
             surr = jnp.mean(jnp.minimum(ratio * adv, jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv))
             kl = 0.0
             if kl_coef > 0.0:
                 mean_b, _ = ddim_mean_std(unet, base_params, x_t, tc, tn, alpha_bar, eta, temp,
-                                          cond_fn, visc)
+                                          cond_fn, visc, guide_fn)
                 kl = jnp.mean(jnp.sum((mean - mean_b) ** 2, axis=(-3, -2, -1)) / (2.0 * std ** 2))
             return carry, (surr, kl)
 
         _, (surrs, kls) = jax.lax.scan(jax.checkpoint(step), None, (states, actions, logp_old, t_cur, t_nxt))
         return -jnp.mean(surrs) + kl_coef * jnp.mean(kls)
 
-    if cond_fn is not None:
+    if cond_fn is not None or guide_fn is not None:
         return _loss_fn                       # (params, states, actions, logp_old, adv, base, visc)
     return lambda params, states, actions, logp_old, adv, base_params: _loss_fn(
         params, states, actions, logp_old, adv, base_params, None)
@@ -369,7 +380,7 @@ class DDPOTrainer:
                  t_start=150, clip_eps=0.2, kl_coef=0.0, n_inner=4, seed=0,
                  cond_strength=0.0, sampling_temp=1.0, base_params=None, opt_state=None,
                  sampler="ddpm", ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
-                 ddim_cond_fn=None):
+                 ddim_cond_fn=None, ddim_guide_fn=None):
         # ddim_cond_fn (ConditionalUnet + sampler='ddim' only): condRes = ddim_cond_fn(x_t, visc)
         # computed at every policy step and fed to the network. visc (1/Re) is passed per iteration
         # via train_iter(..., visc=) / probe_x0(..., visc=) as a TRACED scalar, so one compilation
@@ -420,19 +431,22 @@ class DDPOTrainer:
         self._sqrt_ab = float(jnp.sqrt(self.alpha_bar[t_start]))
         self._sqrt_1mab = float(jnp.sqrt(1.0 - self.alpha_bar[t_start]))
         self.sampler = sampler
-        self._ddim_cond = ddim_cond_fn is not None
+        self._ddim_cond = (ddim_cond_fn is not None) or (ddim_guide_fn is not None)
         if sampler == "ddim":
             assert self.cond_func is None, \
                 "sampler='ddim' does not support the legacy config cond_func (use ddim_cond_fn)"
             rollout = build_ddim_rollout(self.unet, self.alpha_bar, t_start, ddim_steps, eta,
-                                         sampling_temp, chain_starts, ddim_stride, ddim_cond_fn)
+                                         sampling_temp, chain_starts, ddim_stride, ddim_cond_fn,
+                                         ddim_guide_fn)
             loss_fn = build_ddim_loss(self.unet, self.alpha_bar, t_start, ddim_steps,
                                       clip_eps, eta, kl_coef, sampling_temp, chain_starts,
-                                      ddim_stride, ddim_cond_fn)
+                                      ddim_stride, ddim_cond_fn, ddim_guide_fn)
             eval_rollout = build_ddim_rollout(self.unet, self.alpha_bar, t_start, ddim_steps, eta,
-                                              1.0, chain_starts, ddim_stride, ddim_cond_fn)
+                                              1.0, chain_starts, ddim_stride, ddim_cond_fn,
+                                              ddim_guide_fn)
         else:
-            assert ddim_cond_fn is None, "ddim_cond_fn requires sampler='ddim'"
+            assert ddim_cond_fn is None and ddim_guide_fn is None, \
+                "ddim_cond_fn/ddim_guide_fn require sampler='ddim'"
             rollout = build_rollout(self.unet, self.alpha_bar, self.beta_schedule,
                                     t_start, self.cond_func, cond_strength, sampling_temp)
             loss_fn = build_loss(self.unet, self.alpha_bar, self.beta_schedule, t_start,
