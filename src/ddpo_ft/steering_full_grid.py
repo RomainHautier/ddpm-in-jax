@@ -43,6 +43,20 @@ MODELS = {'r1k-449': pickle.load(open(R1K, 'rb'))['params'],
           're2k-149': pickle.load(open(R2K, 'rb'))['params'],
           'rs8kkl-799': pickle.load(open(R8K, 'rb'))['params'],
           'pr2k-549': pickle.load(open(PRK, 'rb'))['params']}
+# night-tail hooks: EXTRA_MODELS="name:path,..." appends models; GRID_MODELS/GRID_REGIMES
+# comma-lists restrict the sweep; GRID_SEED (default 700) re-runs cells under a fresh seed
+# with '|s{seed}' key suffix for error bars.
+for _spec in filter(None, os.environ.get('EXTRA_MODELS', '').split(',')):
+    _nm, _pth = _spec.split(':', 1)
+    MODELS[_nm] = pickle.load(open(_pth, 'rb'))['params']
+if os.environ.get('GRID_MODELS'):
+    _keep = set(os.environ['GRID_MODELS'].split(','))
+    MODELS = {k: v for k, v in MODELS.items() if k in _keep}
+if os.environ.get('GRID_REGIMES'):
+    _kr = {int(r) for r in os.environ['GRID_REGIMES'].split(',')}
+    REGIMES = {R: c for R, c in REGIMES.items() if R in _kr}
+GRID_SEED = int(os.environ.get('GRID_SEED', '700'))
+KSUF = '' if GRID_SEED == 700 else f'|s{GRID_SEED}'
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
 _sa, _s1 = float(jnp.sqrt(ab[100])), float(jnp.sqrt(1.0 - ab[100]))
@@ -134,7 +148,7 @@ for R, c in REGIMES.items():
         smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, lam,
                                        temp=0.30, jit=False, aux_dx=True)
         for nm, P in MODELS.items():
-            key = f'{R}|{nm}|SG{sg}'
+            key = f'{R}|{nm}|SG{sg}{KSUF}'
             if f'{key}||ret' in OUT:
                 continue
             def run6(xb6, kk, _P=P, _smp=smp):
@@ -143,7 +157,7 @@ for R, c in REGIMES.items():
                 return _smp(_P, sa3 * rc + s13 * jax.random.normal(
                     jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2),
                     aux=refs)
-            y = B16(run6, xpack, 700)
+            y = B16(run6, xpack, GRID_SEED)
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
             ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
                                        for i in range(0, len(y), 32)]).mean())
