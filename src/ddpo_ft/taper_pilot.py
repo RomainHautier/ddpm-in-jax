@@ -1,8 +1,10 @@
-"""TAPERED BAND EDGE PILOT (user 2026-08-23): the k=96 cliff in every ratio plot is partly
-the hard edge of the dose band (full pull at k=95, nothing at 96). Test a tapered second
-term: weight 1 in [32,96), smooth cosine roll-off to 0 across [96,120) — pulls gently into
-the distrusted near-Nyquist zone instead of stopping at a wall. re2k-149 @ K3, Re 5000/8000,
-ls in {8,16}, hard vs tapered. Keys '{R}|re2k-149|TP{edge}ls{v}' in steering_pilot.npz.
+"""TAPERED BAND EDGE PILOT, v2 (user 2026-08-23): the governing principle — never compare
+against the reference beyond the k where the (downsampled-DNS) reference resolves, i.e. never
+past 96. So the taper is INSIDE the trusted band: full weight to k=80, cosine roll-off to
+zero AT 96; the reference beyond 96 is never consulted. Question: is the band-edge cliff
+partly the hard stop's abruptness? The [96,120) tail ratio is reported as a PASSIVE
+diagnostic only, never a target. re2k-149 @ K3, Re 5000/8000, ls in {8,16}, hard vs taper.
+Keys '{R}|re2k-149|TP{edge}ls{v}' in steering_pilot.npz.
 """
 import os, sys, pickle
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -50,8 +52,10 @@ for R in (5000, 8000):
             lE = jnp.log(spec_fn(x)[:, 32:120] + 1e-12)
             return (w * (lE - lref[32:120]) ** 2).mean(axis=1).sum()
         return jax.grad(dist)
-    w_hard = np.zeros(88); w_hard[:64] = 1.0                       # [32,96) only
-    w_tap = np.ones(88); w_tap[64:] = 0.5 * (1 + np.cos(np.pi * np.arange(24) / 24))
+    w_hard = np.zeros(88); w_hard[:64] = 1.0                       # [32,96), hard edge
+    w_tap = np.zeros(88); w_tap[:48] = 1.0                         # [32,80) full weight
+    w_tap[48:64] = 0.5 * (1 + np.cos(np.pi * np.arange(16) / 16))  # roll to zero AT 96
+    # beyond 96: zero in BOTH arms - the reference is never consulted past 3/4 Nyquist
     D2 = {'hard': make_hi(w_hard), 'taper': make_hi(w_tap)}
 
     xg, xl = [], []
