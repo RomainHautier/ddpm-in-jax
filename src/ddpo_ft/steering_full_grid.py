@@ -47,8 +47,10 @@ MODELS = {'r1k-449': pickle.load(open(R1K, 'rb'))['params'],
 # comma-lists restrict the sweep; GRID_SEED (default 700) re-runs cells under a fresh seed
 # with '|s{seed}' key suffix for error bars.
 for _spec in filter(None, os.environ.get('EXTRA_MODELS', '').split(',')):
-    _nm, _pth = _spec.split(':', 1)
-    MODELS[_nm] = pickle.load(open(_pth, 'rb'))['params']
+    _parts = _spec.split(':')
+    _nm, _pth = _parts[0], _parts[1]
+    _key = _parts[2] if len(_parts) > 2 else 'params'   # base ckpt deploys its EMA weights
+    MODELS[_nm] = pickle.load(open(_pth, 'rb'))[_key]
 if os.environ.get('GRID_MODELS'):
     _keep = set(os.environ['GRID_MODELS'].split(','))
     MODELS = {k: v for k, v in MODELS.items() if k in _keep}
