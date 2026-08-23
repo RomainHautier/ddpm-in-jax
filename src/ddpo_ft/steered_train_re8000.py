@@ -81,6 +81,7 @@ ema_params = jax.tree_util.tree_map(lambda a: a, trainer.params)
 
 
 probe_hist = []
+rng = np.random.default_rng(0)
 for gi in range(N_OUTER):
     idx = rng.choice(len(POOL), B, replace=False)
     m = trainer.train_iter(jnp.asarray(POOL[idx]), visc=1.0 / R)
