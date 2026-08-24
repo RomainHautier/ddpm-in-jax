@@ -59,7 +59,7 @@ if os.path.exists(OUTP):
     old = np.load(OUTP, allow_pickle=True); OUT = {k: old[k] for k in old.files}
 
 for R, c in REGIMES.items():
-    if all(f'{R}|{nm}|AUTO||ret' in OUT for nm in MODELS):
+    if all(f'{R}|{nm}|AUTOv2||ret' in OUT for nm in MODELS):
         continue
     d = np.load(c['anchor'])
     stats = {k: d[k] for k in d.files}
@@ -92,7 +92,11 @@ for R, c in REGIMES.items():
             smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, 3.0, temp=0.30)
             yb = np.asarray(smp(P, sa3 * jnp.asarray(probe) + s13 * jax.random.normal(
                 jax.random.PRNGKey(11), probe.shape), jax.random.PRNGKey(12)))
-            sm = float(np.asarray(spec_fn(jnp.asarray(yb))).mean(0)[10:96].sum() / A[10:96].sum())
+            # v2 meter (user 2026-08-24): score the probe on [32,96) — the SAME band as the
+            # graded deliverable. The old [10,96) aggregate is mid-band dominated and reads
+            # 'matched' while the fine band still overshoots (the Re=1000 under-dial). The
+            # DIAL'S LOSS IS UNTOUCHED: it keeps pulling over the whole band.
+            sm = float(np.asarray(spec_fn(jnp.asarray(yb))).mean(0)[32:96].sum() / A[32:96].sum())
             print(f"  {nm} probe ls={ls:<4g} statmatch={sm:.3f}", flush=True)
             if abs(sm - 1) < best[1] - 1e-6:
                 best = (ls, abs(sm - 1))
@@ -105,7 +109,7 @@ for R, c in REGIMES.items():
         ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
                                    for i in range(0, len(y), 32)]).mean())
         Eh = local_hik_energy(y[..., 1] * SIG, HIK0, 6.0)
-        key = f'{R}|{nm}|AUTO'
+        key = f'{R}|{nm}|AUTOv2'
         vals = dict(ret=E[HIK0:96].sum() / E_gt[HIK0:96].sum(),
                     place=np.corrcoef(Eh.ravel(), Ehg.ravel())[0, 1],
                     lowk=E[1:5].sum() / E_gt[1:5].sum(), kstar=eff_resolution(E, E_gt),
