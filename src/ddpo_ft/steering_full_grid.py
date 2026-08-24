@@ -33,7 +33,12 @@ REGIMES = {
        for R in (1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000)},
 }
 STRATS = {'none': (0.0, 0.0, 0.0), 'residual': (3.0, 0.0, 0.0), 'reward': (0.0, 8.0, 0.0),
-          'placement': (0.0, 0.0, 3.0), 'all3': (3.0, 8.0, 3.0)}
+          'placement': (0.0, 0.0, 3.0), 'all3': (3.0, 8.0, 3.0),
+          # v2 dose dial (2026-08-24): + mid-band term d[16,32) at weight 3 - the sag fix
+          'rewardv2': (0.0, 8.0, 0.0)}
+if os.environ.get('GRID_STRATS'):
+    _ks = set(os.environ['GRID_STRATS'].split(','))
+    STRATS = {k: v for k, v in STRATS.items() if k in _ks}
 R1K = 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pkl'
 R2K = 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl'
 R8K = 'monitoring/ddpo_re8000_rs_kl3_ckpts/ddpo_re1000_iter0799.pkl'
@@ -91,12 +96,14 @@ def make_place_dx(refs):
     return jax.grad(loss)
 
 
-def make_anchor_dose_dx(stats):
+def make_anchor_dose_dx(stats, midband=False):
     lref = stats.get('log_spec_ref')
     d1 = make_spectrum_distance(stats['spec_ref'], kband=(1, 96), n=N, log_ref=lref)
     d2 = make_spectrum_distance(stats['spec_ref'], kband=(32, 96), n=N, log_ref=lref)
+    dm = make_spectrum_distance(stats['spec_ref'], kband=(16, 32), n=N, log_ref=lref)
     def loss(x):
-        return jnp.sum(0.5 * d1(x) + 3.0 * d2(x))
+        base = 0.5 * d1(x) + 3.0 * d2(x)
+        return jnp.sum(base + 3.0 * dm(x)) if midband else jnp.sum(base)
     return jax.jit(jax.grad(loss))
 
 
@@ -112,6 +119,7 @@ for R, c in REGIMES.items():
     stats = {k: d[k] for k in d.files}
     dx_pde = make_dx_func(n=N, re=float(R), std=SIG, mean=MEAN)
     dx_dose = make_anchor_dose_dx(stats)
+    dx_dose2 = make_anchor_dose_dx(stats, midband=True)
     xg, xl = [], []
     for s in c['seqs']:
         q = load_sequence(c['gt'], s)
@@ -141,8 +149,9 @@ for R, c in REGIMES.items():
     for sg, (lp, ls, mu) in STRATS.items():
         # sampler built OUTSIDE the pmap trace (its build-time float() constants must stay
         # concrete); per-chunk placement refs enter through the aux ARGUMENT.
-        def dx(x, aux, _lp=lp, _ls=ls, _mu=mu):
-            g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * dx_dose(x)
+        _dose = dx_dose2 if sg == 'rewardv2' else dx_dose
+        def dx(x, aux, _lp=lp, _ls=ls, _mu=mu, _dose=_dose):
+            g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * _dose(x)
             if _mu > 0:
                 g = g + (_mu / 3.0) * pgrad(x, aux)
             return g
