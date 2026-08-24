@@ -84,7 +84,7 @@ for R, c in REGIMES.items():
     probe = recon[:32]
     print(f"\n=== Re={R}: auto-tune ===", flush=True)
     for nm, P in MODELS.items():
-        if f'{R}|{nm}|AUTO||ret' in OUT:
+        if f'{R}|{nm}|AUTOv2||ret' in OUT:
             continue
         best = (None, 1e9)
         for ls in LGRID:
