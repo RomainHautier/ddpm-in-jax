@@ -35,7 +35,8 @@ REGIMES = {
 STRATS = {'none': (0.0, 0.0, 0.0), 'residual': (3.0, 0.0, 0.0), 'reward': (0.0, 8.0, 0.0),
           'placement': (0.0, 0.0, 3.0), 'all3': (3.0, 8.0, 3.0),
           # v2 dose dial (2026-08-24): + mid-band term d[16,32) at weight 3 - the sag fix
-          'rewardv2': (0.0, 8.0, 0.0)}
+          'rewardv2': (0.0, 8.0, 0.0),
+          'all3v2': (3.0, 8.0, 3.0)}   # fully coupled deployment: v2 dose + placement + physics
 if os.environ.get('GRID_STRATS'):
     _ks = set(os.environ['GRID_STRATS'].split(','))
     STRATS = {k: v for k, v in STRATS.items() if k in _ks}
@@ -149,7 +150,7 @@ for R, c in REGIMES.items():
     for sg, (lp, ls, mu) in STRATS.items():
         # sampler built OUTSIDE the pmap trace (its build-time float() constants must stay
         # concrete); per-chunk placement refs enter through the aux ARGUMENT.
-        _dose = dx_dose2 if sg == 'rewardv2' else dx_dose
+        _dose = dx_dose2 if sg in ('rewardv2', 'all3v2') else dx_dose
         def dx(x, aux, _lp=lp, _ls=ls, _mu=mu, _dose=_dose):
             g = (_lp / 3.0) * dx_pde(x) + (_ls / 3.0) * _dose(x)
             if _mu > 0:
