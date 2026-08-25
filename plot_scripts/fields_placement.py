@@ -74,7 +74,8 @@ def make_figure(c, res):
                 ax.scatter(np.full(len(v), i) + rng.uniform(-0.2, 0.2, len(v)), v, s=7, color=col, alpha=0.45)
                 ax.plot([i - 0.3, i + 0.3], [np.median(v)] * 2, color=style.INK, lw=2)
             ax.set_xticks(range(len(c['rows']))); ax.set_xticklabels([r.replace('__', ' ') for r in c['rows']], rotation=50, ha='right', fontsize=c['fontsize'] - 2.5)
-            ax.set_title(f"{'map correlation' if stat == 'corr' else f'top-{c['top_q']:g}% hot-spot overlap (Jaccard)'} [{lo},{hi})")
+            what = 'map correlation' if stat == 'corr' else f"top-{c['top_q']:g}% hot-spot overlap (Jaccard)"
+            ax.set_title(f"{what} [{lo},{hi})")
     fig.suptitle('Where the energy goes vs ground truth — per held-out sample (dots), medians (bars)', fontsize=c['fontsize'] + 2)
     fig.savefig(c['out']); plt.close(fig); print('written', c['out'])
 
