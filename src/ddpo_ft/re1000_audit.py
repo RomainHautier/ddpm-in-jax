@@ -95,6 +95,14 @@ OUTP = 'base_results/re1000_audit.npz'
 if os.path.exists(OUTP):
     old = np.load(OUTP, allow_pickle=True); OUT = {k: old[k] for k in old.files}
 OUT['1000|GT||E'] = E_gt.astype(np.float32)
+FDIR = 'base_results/fields/re1000'; os.makedirs(FDIR, exist_ok=True)
+def save_fields(name, y):
+    """persist the actual reconstructions (float16, compressed) so any later analysis on the
+    held-out samples runs offline from stored data - no re-inference (user 2026-08-25)"""
+    np.savez_compressed(f"{FDIR}/{name.replace('|', '__')}.npz", x=np.asarray(y, np.float16))
+if not os.path.exists(f'{FDIR}/GT.npz'):
+    save_fields('GT', xg); save_fields('LR', xl); save_fields('recon', recon)
+    np.savez(f'{FDIR}/index.npz', seqs=np.array(SEQS), per=PER, note='seqs 34-39 of kf_2d_re1000_256_40seed; middle frame = channel 1; multiply by SIG=4.7988 for physical vorticity')
 
 
 FORCE = set(filter(None, os.environ.get('FORCE_ROWS', '').split(',')))   # prefixes to regrade
@@ -104,6 +112,7 @@ OUT['1000|GT||psEb'] = np.stack([Eg_s[:, lo:hi].sum(1) for lo, hi in BANDS], 1).
 
 def grade(y, row):
     y = np.asarray(y)
+    if row not in ('LR', 'recon'): save_fields(row, y)
     Es = np.asarray(spec_fn(jnp.asarray(y)))                                   # per-sample spectra
     E = Es.mean(0)
     # per-sample validation statistics (user 2026-08-25): paired and ensemble-relative

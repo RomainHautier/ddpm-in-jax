@@ -170,6 +170,13 @@ for R, c in REGIMES.items():
                     jax.random.fold_in(kk, 1), rc.shape), jax.random.fold_in(kk, 2),
                     aux=refs)
             y = B16(run6, xpack, GRID_SEED)
+            if os.environ.get('SAVE_FIELDS'):
+                _fd = f'base_results/fields/grid/{R}'; os.makedirs(_fd, exist_ok=True)
+                np.savez_compressed(f'{_fd}/{nm}__{sg}{KSUF.replace("|", "_")}.npz', x=np.asarray(y, np.float16))
+                if not os.path.exists(f'{_fd}/GT.npz'):
+                    np.savez_compressed(f'{_fd}/GT.npz', x=xg.astype(np.float16))
+                    np.savez_compressed(f'{_fd}/LR.npz', x=xl.astype(np.float16))
+                    np.savez_compressed(f'{_fd}/recon.npz', x=np.asarray(recon, np.float16))
             E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
             ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
                                        for i in range(0, len(y), 32)]).mean())
