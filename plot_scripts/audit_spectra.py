@@ -19,7 +19,7 @@ CONFIG = dict(
     kmax=127, ratio_ylim=(0.08, 4), bands_ylim=(0, 1.6),
     panel_w=5.0, panel_h=4.6, fontsize=10, dpi=140, legend_cols=1,
     styles={'LR': '--', 'recon': '--'},      # per-row line style overrides
-    title='', out='monitoring/figs/audit_spectra.png',
+    title='', out='monitoring/figs/audit_spectra.pdf',
 )
 
 

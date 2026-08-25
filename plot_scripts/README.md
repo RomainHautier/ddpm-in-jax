@@ -1,6 +1,7 @@
 # plot_scripts — clean, editable figure scripts
 
-Self-contained: only `numpy`, `matplotlib`, and the sibling `style.py`. Every script has a
+Self-contained: only `numpy`, `matplotlib`, and the sibling `style.py`. Figures are saved as **PDF**
+by default (vector, thesis-ready); pass `--out something.png` for a raster version. Every script has a
 `CONFIG` dict at the top you can edit directly; CLI flags override it. Run from anywhere:
 
     JAX_PLATFORMS=cpu /home/rhautier/venv-ddpm/bin/python plot_scripts/<script>.py [flags]

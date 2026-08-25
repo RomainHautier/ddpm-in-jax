@@ -18,7 +18,7 @@ CONFIG = dict(
     fdir='base_results/fields/re1000', SIG=4.7988,
     rows=['recon', 'base0__K3__none', 'base0__K3__rewardv2', 'r1k-449__K3__none', 'r1k-449__K3__rewardv2'],
     bands=[(16, 32), (32, 64), (64, 96)], smooth_sigma=6.0, top_q=5.0,
-    panel_w=4.6, panel_h=4.2, fontsize=10, dpi=140, out='monitoring/figs/fields_placement.png',
+    panel_w=4.6, panel_h=4.2, fontsize=10, dpi=140, out='monitoring/figs/fields_placement.pdf',
 )
 N = 256
 fy = np.fft.fftfreq(N) * N

@@ -19,7 +19,7 @@ CONFIG = dict(
     metrics=['ret', 'place', 'mse', 'resid'],
     logy={'resid'}, persample=True,
     panel_w=4.2, panel_h=4.4, fontsize=10, dpi=140, rotate=55,
-    title='', out='monitoring/figs/audit_metrics.png',
+    title='', out='monitoring/figs/audit_metrics.pdf',
 )
 LAB = {'ret': 'retention [32,96)', 'place': 'placement', 'mse': 'MSE', 'resid': 'PDE residual / GT floor',
        'lowk': 'large-scale energy / GT', 'kstar': 'effective resolution k*'}

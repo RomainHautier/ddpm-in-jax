@@ -17,7 +17,7 @@ CONFIG = dict(
     regimes=[1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000],
     absolute=False, kmax=127, ratio_ylim=(0.04, 5),
     panel_w=4.4, panel_h=3.5, fontsize=9.5, dpi=150,
-    title='', out='monitoring/figs/grid_spectra.png',
+    title='', out='monitoring/figs/grid_spectra.pdf',
 )
 
 

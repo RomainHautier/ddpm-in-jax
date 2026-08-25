@@ -22,7 +22,7 @@ CONFIG = dict(
     ylim={'place': (0.55, 0.92), 'resid': (0.03, 3.0)},
     logy={'resid', 'b1632', 'b3264', 'b6496', 'ret'},
     panel_w=3.1, panel_h=2.9, fontsize=9.5, dpi=150, legend_panel=0,
-    title='', out='monitoring/figs/grid_panel.png',
+    title='', out='monitoring/figs/grid_panel.pdf',
 )
 SCOL = {'none': '#5d645d', 'residual': '#2a78d6', 'reward': '#7a4bd0', 'placement': '#0f9e78',
         'all3': '#d4770a', 'rewardv2': '#b8399e', 'all3v2': '#c22f4f'}
