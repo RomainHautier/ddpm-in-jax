@@ -97,9 +97,25 @@ if os.path.exists(OUTP):
 OUT['1000|GT||E'] = E_gt.astype(np.float32)
 
 
+FORCE = set(filter(None, os.environ.get('FORCE_ROWS', '').split(',')))   # prefixes to regrade
+Eg_s = np.asarray(spec_fn(jnp.asarray(xg)))                                    # per-sample GT spectra
+OUT['1000|GT||psEb'] = np.stack([Eg_s[:, lo:hi].sum(1) for lo, hi in BANDS], 1).astype(np.float32)
+
+
 def grade(y, row):
     y = np.asarray(y)
-    E = np.asarray(spec_fn(jnp.asarray(y))).mean(0)
+    Es = np.asarray(spec_fn(jnp.asarray(y)))                                   # per-sample spectra
+    E = Es.mean(0)
+    # per-sample validation statistics (user 2026-08-25): paired and ensemble-relative
+    OUT[f'1000|{row}||psEb'] = np.stack([Es[:, lo:hi].sum(1) for lo, hi in BANDS], 1).astype(np.float32)
+    OUT[f'1000|{row}||ps_ret_paired'] = (Es[:, HIK0:96].sum(1) / Eg_s[:, HIK0:96].sum(1)).astype(np.float32)
+    OUT[f'1000|{row}||ps_ret_ens'] = (Es[:, HIK0:96].sum(1) / E_gt[HIK0:96].sum()).astype(np.float32)
+    _Eh = local_hik_energy(y[..., 1] * SIG, HIK0, 6.0)
+    OUT[f'1000|{row}||ps_place'] = np.array([np.corrcoef(_Eh[i].ravel(), Ehg[i].ravel())[0, 1]
+                                             for i in range(len(y))], np.float32)
+    OUT[f'1000|{row}||ps_mse'] = (np.mean((y[..., 1] - xg[..., 1]) ** 2, axis=(1, 2)) * SIG ** 2).astype(np.float32)
+    OUT[f'1000|{row}||ps_resid'] = np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
+                                                   for i in range(0, len(y), 32)]).astype(np.float32) / rg
     ry = float(np.concatenate([np.asarray(resid_fn(jnp.asarray(y[i:i + 32]))).ravel()
                                for i in range(0, len(y), 32)]).mean())
     Eh = local_hik_energy(y[..., 1] * SIG, HIK0, 6.0)
@@ -119,13 +135,13 @@ def grade(y, row):
 
 
 for row, arr in (('LR', xl), ('recon', recon)):
-    if f'1000|{row}||ret' not in OUT: grade(arr, row)
+    if f'1000|{row}||ret' not in OUT or any(row.startswith(f) for f in FORCE): grade(arr, row)
 
 xpack = np.concatenate([recon, xl], axis=-1)
 for nm, P in MODELS.items():
     for sg, (lp, ls, mu, ver) in STRATS.items():
         row = f'{nm}|K3|{sg}'
-        if f'1000|{row}||ret' in OUT: continue
+        if f'1000|{row}||ret' in OUT and not any(row.startswith(f) for f in FORCE): continue
         dose = dose2 if ver == 2 else dose1
         def ploss(x, refs):
             ms = nmaps(x[..., 1] * SIG)
@@ -149,7 +165,7 @@ for nm, P in MODELS.items():
 # base depth ladder, unsteered (lam=0)
 for cfg in ('K2x50', 'K4x110', 'K5x140'):
     row = f'base0|{cfg}|none'
-    if f'1000|{row}||ret' in OUT: continue
+    if f'1000|{row}||ret' in OUT and not any(row.startswith(f) for f in FORCE): continue
     starts, steps = LADDER[cfg]
     sa, s1 = float(jnp.sqrt(ab[starts[0]])), float(jnp.sqrt(1.0 - ab[starts[0]]))
     smp = make_kchain_ddim_sampler(ddpm.unet, ab, starts, steps, dx_pde, 0.0, temp=0.30)
