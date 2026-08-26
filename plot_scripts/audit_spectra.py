@@ -48,8 +48,8 @@ def make_figure(c):
                              constrained_layout=True, squeeze=False)
     for ax, pn in zip(axes[0], c['panels']):
         if pn in ('abs', 'ratio'): style.shade_bands(ax)
-        if pn == 'abs': ax.loglog(k, Eg[1:c['kmax'] + 1], '-', color=style.INK, lw=2.6, label='ground truth')
-        if pn == 'ratio': ax.axhline(1, color=style.INK, lw=1.3, ls='--', zorder=6)
+        if pn == 'abs': ax.loglog(k, Eg[1:c['kmax'] + 1], '-', color=style.GT_COLOR, lw=style.GT_LW, label='GROUND TRUTH', zorder=9)
+        if pn == 'ratio': ax.axhline(1, color=style.GT_COLOR, lw=2.2, ls='--', zorder=6, label='GROUND TRUTH (=1)')
         for i, r in enumerate(rows):
             E = np.asarray(A[f'{R}|{r}||E']); col = style.PALETTE[i % len(style.PALETTE)]
             ls = c['styles'].get(r, '-')
