@@ -13,7 +13,7 @@ systematic under-estimate. A fixed constant (not the batch mean) is essential: b
 normalization degrades the predictor from 93% to 78% within +-20%.
 Graded on the metric that matters: PER-SAMPLE in-band rate, alongside the ensemble numbers.
 Cells: Re=1000 (base0, r1k-449; held-out seqs 34-39) and Re=5000/8000 (re2k-149, st8k-599).
-Keys '{R}|{m}|K3|v4scaled' in the matching audit store."""
+Keys '{R}|{m}|K3|v5taperscale' and '|v5taperbeta' in the matching audit store."""
 import os, sys, pickle
 os.chdir('/home/rhautier/ddpm-jax')
 sys.path.insert(0, '.'); sys.path.insert(0, 'src/ddpo_ft')
@@ -48,7 +48,7 @@ B16 = partial(pbatched, per_dev=16)
 
 for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     S = {k: v for k, v in np.load(store_path, allow_pickle=True).items()}
-    if all(f'{R}|{m}|K3|v4scaled||ret' in S for m in models):
+    if all(f'{R}|{m}|K3|{t}||ret' in S for m in models for t in ('v5taperscale', 'v5taperbeta')):
         continue
     d = np.load(f'base_results/regime_stats_re{R}_measured_train.npz')
     ref, lref = d['spec_ref'], d.get('log_spec_ref')
