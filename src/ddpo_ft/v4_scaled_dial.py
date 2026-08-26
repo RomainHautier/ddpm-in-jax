@@ -75,12 +75,14 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     _b = (obs / C_R) ** beta
     SCALES['v4beta'] = (_b / _b.mean()).astype(np.float32)
     print(f"    beta (variance-matched) = {beta:.3f}", flush=True)
+    _sc = SCALES['v4scaled']
     print(f"\n=== Re={R}: C_R={C_R:.4e}, scale p10/50/90 = "
-          f"{np.percentile(scale,10):.2f}/{np.percentile(scale,50):.2f}/{np.percentile(scale,90):.2f} ===", flush=True)
+          f"{np.percentile(_sc,10):.2f}/{np.percentile(_sc,50):.2f}/{np.percentile(_sc,90):.2f} ===", flush=True)
     tgt_s = E_gt_s[:, 32:96].sum(1)
-    pred = E_gt[32:96].sum() * scale
-    print(f"    predictor check: median |err| {np.median(np.abs(pred-tgt_s)/tgt_s)*100:.1f}%, "
-          f"within20% {np.mean(np.abs(pred/tgt_s-1)<0.2)*100:.0f}%", flush=True)
+    for _t, _s in SCALES.items():
+        _p = E_gt[32:96].sum() * _s
+        print(f"    predictor check [{_t}]: median |err| {np.median(np.abs(_p-tgt_s)/tgt_s)*100:.1f}%, "
+              f"within20% {np.mean(np.abs(_p/tgt_s-1)<0.2)*100:.0f}%", flush=True)
     for m in models:
         for tag, scale in SCALES.items():
             key = f'{R}|{m}|K3|{tag}'
