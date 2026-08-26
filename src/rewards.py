@@ -103,7 +103,8 @@ def load_regime_stats(path):
 
 # ---------------------------------------------------------------- distance components
 
-def make_spectrum_distance(spec_ref, kband=(1, 96), n=256, log_ref=None, rel_floor=1e-6):
+def make_spectrum_distance(spec_ref, kband=(1, 96), n=256, log_ref=None, rel_floor=1e-6,
+                           per_sample_scale=None):
     """d_spec(x): mean squared log-ratio of the sample's spectrum to the regime reference over the
     shell band [kband[0], kband[1]). Log-space so every decade of the enstrophy cascade counts —
     this is the component that *sees* the high-k deficit MSE is blind to.
@@ -111,16 +112,27 @@ def make_spectrum_distance(spec_ref, kband=(1, 96), n=256, log_ref=None, rel_flo
     log_ref: per-shell mean log-spectrum (stats['log_spec_ref']) — preferred anchor (geometric
     mean; see compute_regime_stats). Falls back to log(spec_ref).
     rel_floor: sample shells are floored at rel_floor * reference so a hard-zeroed shell
-    contributes a bounded (log rel_floor)^2 instead of an epsilon-driven blowup."""
+    contributes a bounded (log rel_floor)^2 instead of an epsilon-driven blowup.
+    per_sample_scale: optional (B,) multiplier on the reference, one per sample — the CONDITIONAL
+    anchor (v4, 2026-08-26). The dial otherwise matches MARGINAL statistics, which is why per-frame
+    dose scatters; scaling the anchor by each sample's own predicted level (from the base recon's
+    fine-band energy, r=0.92-0.98 with truth at every regime, no ground truth involved) makes the
+    target conditional. Enters as an additive log shift, so the log-space geometry is unchanged."""
     spec_fn = make_spectrum_fn(n)
     lo, hi = kband
     lref = jnp.asarray((log_ref if log_ref is not None else np.log(spec_ref + 1e-20))[lo:hi],
                        jnp.float32)
     floor = jnp.exp(lref) * rel_floor
 
-    def d(x):
-        e = jnp.maximum(spec_fn(x)[..., lo:hi], floor)
-        return jnp.mean((jnp.log(e) - lref) ** 2, axis=-1)
+    if per_sample_scale is None:
+        def d(x):
+            e = jnp.maximum(spec_fn(x)[..., lo:hi], floor)
+            return jnp.mean((jnp.log(e) - lref) ** 2, axis=-1)
+    else:
+        lshift = jnp.log(jnp.asarray(per_sample_scale, jnp.float32))[:, None]     # (B,1)
+        def d(x):
+            e = jnp.maximum(spec_fn(x)[..., lo:hi], floor * jnp.exp(lshift))
+            return jnp.mean((jnp.log(e) - (lref[None, :] + lshift)) ** 2, axis=-1)
 
     return jax.jit(d)
 

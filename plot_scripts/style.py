@@ -4,7 +4,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 INK = '#232823'
-PALETTE = ['#5d645d', '#2a78d6', '#7a4bd0', '#0f9e78', '#d4770a', '#b8399e', '#c22f4f',
+GT_COLOR, GT_LW = '#000000', 3.4      # ground truth: always thickest and pure black
+PALETTE = ['#1f77b4', '#2a78d6', '#7a4bd0', '#0f9e78', '#d4770a', '#b8399e', '#c22f4f',
            '#8a5cd6', '#28658a', '#9aa198']
 BANDS = [(1, 5), (5, 16), (16, 32), (32, 64), (64, 96)]
 BAND_LABELS = ['[1,5)', '[5,16)', '[16,32)', '[32,64)', '[64,96)']
