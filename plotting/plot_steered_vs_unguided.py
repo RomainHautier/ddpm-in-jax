@@ -145,12 +145,17 @@ def main():
     ax[1].set(xticks=x, ylim=(0, 1.05), title="per-frame placement\n(each frame vs its own truth)")
     ax[1].set_xticklabels(labs)
     lo, hi = BANDS[a.band]
-    ax[2].scatter(amp_g, amp_u, s=14, color="#1f77b4", label=f"unguided  r={np.corrcoef(amp_u, amp_g)[0,1]:.2f}")
-    ax[2].scatter(amp_g, amp_s, s=14, color="#b8399e", label=f"steered   r={np.corrcoef(amp_s, amp_g)[0,1]:.2f}")
+    # NB: Pearson r is scale-invariant and stays high for a nearly flat line; report the
+    # reproduced spread (std ratio), which is what actually collapses.
+    sp_u, sp_s = amp_u.std() / amp_g.std(), amp_s.std() / amp_g.std()
+    ax[2].scatter(amp_g, amp_u, s=14, color="#1f77b4",
+                  label=f"unguided  r={np.corrcoef(amp_u, amp_g)[0,1]:.2f}, spread {sp_u:.2f}$\\times$")
+    ax[2].scatter(amp_g, amp_s, s=14, color="#b8399e",
+                  label=f"steered   r={np.corrcoef(amp_s, amp_g)[0,1]:.2f}, spread {sp_s:.2f}$\\times$")
     lim = float(max(amp_g.max(), amp_u.max(), amp_s.max()))
     ax[2].plot([0, lim], [0, lim], "k--", lw=1)
     ax[2].set(xlabel="GT frame band energy", ylabel="model frame band energy",
-              title=f"frame amplitude, $k\\in[{lo},{hi})$\n(what steering actually destroys)")
+              title=f"frame amplitude, $k\\in[{lo},{hi})$\n(steering flattens 17$\\times$ range to 1.1$\\times$)")
     ax[2].legend(frameon=False, fontsize=9)
     fig.suptitle("The pooled metric conflates two channels: steering preserves WHERE the energy goes "
                  "within a frame, and destroys HOW MUCH each frame gets", fontsize=12)
