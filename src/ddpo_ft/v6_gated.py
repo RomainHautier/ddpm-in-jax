@@ -35,15 +35,19 @@ from psample import pbatched
 
 MEAN, SIG, N, HIK0 = 0.0, 4.7988, 256, 32
 STARTS, STEPS = [150, 100, 50], 86
-CFG = {1000: ('flow-data/kf_2d_re1000_256_40seed.npy', [34, 35, 36, 37, 38, 39], 20,
-              'base_results/re1000_audit.npz', ('base0', 'r1k-449')),
-       5000: ('flow-data/generated/gen_fnons_re5000_kf_1024to256_20seq.npy', list(range(8, 20)), 10,
-              'base_results/regime_audit_re5000.npz', ('re2k-149', 'st8k-599')),
-       8000: ('flow-data/generated/gen_fnons_re8000_kf_1024to256_20seq.npy', list(range(8, 20)), 10,
-              'base_results/regime_audit_re8000.npz', ('re2k-149', 'st8k-599'))}
+GEN = 'flow-data/generated/gen_fnons_re{}_kf_1024to256_20seq.npy'
+_ALL = {1000: ('flow-data/kf_2d_re1000_256_40seed.npy', [34, 35, 36, 37, 38, 39], 20,
+               'base_results/re1000_audit.npz'),
+        **{R: (GEN.format(R), list(range(8, 20)), 10, f'base_results/regime_audit_re{R}.npz')
+           for R in (1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000)}}
+_REGS = [int(r) for r in os.environ.get('GATE_REGIMES', '1000,5000,8000').split(',')]
+_MODELS = os.environ.get('GATE_MODELS', 'base0,r1k-449').split(',')
+CFG = {R: (*_ALL[R], tuple(_MODELS)) for R in _REGS}
 CKPT = {'r1k-449': 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pkl',
         're2k-149': 'monitoring/ddpo_re2000_newpool_ckpts/ddpo_re1000_iter0149.pkl',
-        'st8k-599': 'monitoring/ddpo_re8000_steeredtrain_ckpts/ddpo_re1000_iter0599.pkl'}
+        'rs8kkl-799': 'monitoring/ddpo_re8000_rs_kl3_ckpts/ddpo_re1000_iter0799.pkl',
+        'st8k-599': 'monitoring/ddpo_re8000_steeredtrain_ckpts/ddpo_re1000_iter0599.pkl',
+        'pr2k-549': 'monitoring/ddpo_re2000_placereward_ckpts/ddpo_re1000_iter0549.pkl'}
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
