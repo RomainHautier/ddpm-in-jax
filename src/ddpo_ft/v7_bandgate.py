@@ -1,4 +1,7 @@
-"""TARGET-GATED GUIDANCE (v6, 2026-08-26): the in-regime blow-up mechanism is OVERSHOOT WITHIN
+"""PER-BAND TARGET GATE (v7, 2026-08-27): v6 gates on the AGGREGATE [32,96) energy, so once the
+fine band as a whole arrives the guidance shuts off for every term - leaving the mid band short
+(0.91 vs the v2 dial's 0.97 at Re=1000). Here each band gets its OWN gate: the mid-band term
+stops when [16,32) arrives, the hi-k term when [32,96) does. ORIGINAL DOC: TARGET-GATED (v6, 2026-08-26): the in-regime blow-up mechanism is OVERSHOOT WITHIN
 THE CHAIN - samples that reach their target early keep receiving full guidance pressure for the
 remaining steps, which accumulates into a narrow spectral spike. Fix: gate each sample's dose
 gradient by how far it still is from its own target: gate_i = min(1, |log(E_i/target_i)| / 0.2)
@@ -18,7 +21,7 @@ systematic under-estimate. A fixed constant (not the batch mean) is essential: b
 normalization degrades the predictor from 93% to 78% within +-20%.
 Graded on the metric that matters: PER-SAMPLE in-band rate, alongside the ensemble numbers.
 Cells: Re=1000 (base0, r1k-449; held-out seqs 34-39) and Re=5000/8000 (re2k-149, st8k-599).
-Keys '{R}|{m}|K3|v6gate'."""
+Keys '{R}|{m}|K3|v7bandgate'."""
 import os, sys, pickle
 os.chdir('/home/rhautier/ddpm-jax')
 sys.path.insert(0, '.'); sys.path.insert(0, 'src/ddpo_ft')
@@ -57,7 +60,7 @@ B16 = partial(pbatched, per_dev=16)
 
 for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     S = {k: v for k, v in np.load(store_path, allow_pickle=True).items()}
-    if all(f'{R}|{m}|K3|v6gate||ret' in S for m in models):
+    if all(f'{R}|{m}|K3|v7bandgate||ret' in S for m in models):
         continue
     d = np.load(f'base_results/regime_stats_re{R}_measured_train.npz')
     ref, lref = d['spec_ref'], d.get('log_spec_ref')
@@ -84,8 +87,8 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     # OOD the recon over-disperses (beta 0.77 at Re=8000) so the plain ratio over-corrects.
     E_gt_ps = E_gt_s[:, 32:96].sum(1)             # stands in for the assumed spread statistic
     beta = float(np.std(np.log(E_gt_ps)) / np.std(np.log(obs)))
-    SCALES = {'v6gate': (obs / C_R).astype(np.float32)}
-    _sc = SCALES['v6gate']
+    SCALES = {'v7bandgate': (obs / C_R).astype(np.float32)}
+    _sc = SCALES['v7bandgate']
     print(f"\n=== Re={R}: C_R={C_R:.4e}, scale p10/50/90 = "
           f"{np.percentile(_sc,10):.2f}/{np.percentile(_sc,50):.2f}/{np.percentile(_sc,90):.2f} ===", flush=True)
     tgt_s = E_gt_s[:, 32:96].sum(1)
@@ -117,11 +120,20 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
                 dose = jax.jit(jax.grad(lambda x: jnp.sum(0.5 * d1(x) + 3.0 * dm(x) + 3.0 * d2(x))))
                 # target gate: per-sample fine-band energy of the CURRENT clean estimate vs its
                 # own scaled target; strength fades to zero at the target (deadband 20%)
-                _tgt = jnp.asarray(ref[32:96].sum()) * sc
-                def dx(x, _d=dose, _t=_tgt):
-                    e = spec_fn(x)[..., 32:96].sum(-1)
-                    gate = jnp.minimum(1.0, jnp.abs(jnp.log(jnp.maximum(e, 1e-8 * _t) / _t)) / 0.2)
-                    return dx_pde(x) + (8.0 / 3.0) * gate[:, None, None, None] * _d(x)
+                # PER-BAND gates: each term keeps its own deadband, so a band that has arrived
+                # stops being pushed while the others continue.
+                _t_mid = jnp.asarray(ref[16:32].sum()) * sc
+                _t_hi = jnp.asarray(ref[32:96].sum()) * sc
+                _g_bb = jax.jit(jax.grad(lambda x: jnp.sum(0.5 * d1(x))))
+                _g_mid = jax.jit(jax.grad(lambda x: jnp.sum(3.0 * dm(x))))
+                _g_hi = jax.jit(jax.grad(lambda x: jnp.sum(3.0 * d2(x))))
+                def _gate(e, t):
+                    return jnp.minimum(1.0, jnp.abs(jnp.log(jnp.maximum(e, 1e-8 * t) / t)) / 0.2)[:, None, None, None]
+                def dx(x, _tm=_t_mid, _th=_t_hi):
+                    S_ = spec_fn(x)
+                    gm = _gate(S_[..., 16:32].sum(-1), _tm)
+                    gh = _gate(S_[..., 32:96].sum(-1), _th)
+                    return dx_pde(x) + (8.0 / 3.0) * (_g_bb(x) + gm * _g_mid(x) + gh * _g_hi(x))
                 dx = jax.jit(dx)
                 smp = make_kchain_ddim_sampler(ddpm.unet, ab, STARTS, STEPS, dx, 3.0, temp=0.30)
                 xb = recon[sl]
@@ -160,4 +172,4 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
                   f"resid={vals['resid_ratio']:.2f} mse={vals['mse']:.2f} | PER-SAMPLE in-band "
                   f"{vals['inband'] * 100:.0f}% [p10 {np.percentile(ps_ret, 10):.2f}, "
                   f"p90 {np.percentile(ps_ret, 90):.2f}]", flush=True)
-print("\nV6 GATE COMPLETE", flush=True)
+print("\nV7 BANDGATE COMPLETE", flush=True)
