@@ -1,0 +1,14 @@
+\begin{table}[t]
+  \centering
+  \caption{Total energy at $\mathrm{Re}=1000$. The fine band $[32,96)$ carries only $1.07\%$ of the ground truth's energy, so large changes there are small changes in the total.}
+  \label{tab:re1000-total}
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    configuration & total/GT & misalloc. & within $5\%$ & within $10\%$ & worst & fine band \\
+    \midrule
+    base model, unguided & 0.9533 & 4.67\% & 59\% & 100\% & 6.9\% & 0.458 \\
+    matched fine-tune, unguided & 0.9476 & 5.35\% & 42\% & 100\% & 8.0\% & 0.999 \\
+    base + target-gated dial & 0.9711 & 2.90\% & 98\% & 100\% & 5.8\% & 0.959 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

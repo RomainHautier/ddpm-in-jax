@@ -1,0 +1,20 @@
+\begin{table}[t]
+  \centering
+  \caption{Reconstruction MSE and PDE residual (relative to that regime's ground truth) for the $\mathrm{Re}=1000$ models carried upward. A residual below $1$ means the sample is smoother than the true flow; it falls monotonically with $\mathrm{Re}$ for every configuration, so the reconstructions become progressively over-smoothed. MSE rises monotonically, and every configuration that adds energy pays for it.}
+  \label{tab:mse-resid-upward}
+  \begin{tabular}{lrrrrrrrr}
+    \toprule
+    $\mathrm{Re}$ & base MSE & resid. & base $+$ dial MSE & resid. & ft MSE & resid. & ft $+$ dial MSE & resid. \\
+    \midrule
+    1000 & 0.40 & 0.63 & 0.43 & 0.42 & 0.44 & 0.73 & 0.47 & 0.37 \\
+    1500 & 0.50 & 0.30 & 0.53 & 0.55 & 0.53 & 0.29 & 0.58 & 0.37 \\
+    2000 & 0.67 & 0.18 & 0.70 & 0.36 & 0.70 & 0.18 & 0.76 & 0.25 \\
+    3000 & 0.88 & 0.10 & 0.93 & 0.30 & 0.90 & 0.09 & 0.99 & 0.18 \\
+    4000 & 1.09 & 0.06 & 1.15 & 0.20 & 1.10 & 0.06 & 1.22 & 0.13 \\
+    5000 & 1.28 & 0.05 & 1.34 & 0.17 & 1.29 & 0.05 & 1.41 & 0.10 \\
+    6000 & 1.34 & 0.04 & 1.41 & 0.14 & 1.35 & 0.04 & 1.48 & 0.09 \\
+    7000 & 1.46 & 0.03 & 1.54 & 0.12 & 1.46 & 0.03 & 1.62 & 0.08 \\
+    8000 & 1.60 & 0.03 & 1.68 & 0.10 & 1.60 & 0.03 & 1.75 & 0.07 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

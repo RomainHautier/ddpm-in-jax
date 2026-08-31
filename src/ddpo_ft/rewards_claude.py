@@ -26,7 +26,7 @@ for _p in (_ROOT, _HERE):
 import jax.numpy as jnp                          # noqa: E402
 import numpy as np                               # noqa: E402
 
-from src.rewards import (                         # noqa: E402
+from src.rewards import (make_band_dose_distance,                          # noqa: E402
     load_calibration,
     load_regime_stats,
     make_alignment_distance,
@@ -50,15 +50,27 @@ DEFAULT_WEIGHTS = {"spec": 0.5, "spec_highk": 1.0, "energy": 0.25, "w1": 0.25, "
 # ---------------------------------------------------------------- component builders
 # Each returns a jitted fn(x) -> (B,) per-sample distance. Build ONCE, call every PPO step.
 
-def component_spectrum(stats, kband=FULL_BAND, n=N):
+def cosine_taper(nshell, ntaper):
+    """Flat 1 then a raised-cosine roll-off to zero over the LAST `ntaper` shells of a band.
+    Matches the v7 gate's edge (full weight to k=80, zero at k=96 for a [32,96) band)."""
+    w = np.ones(nshell, np.float32)
+    if ntaper > 0:
+        t = np.arange(min(ntaper, nshell))
+        w[nshell - len(t):] = 0.5 * (1 + np.cos(np.pi * t / len(t)))
+    return w
+
+
+def component_spectrum(stats, kband=FULL_BAND, n=N, taper=0):
     """d_spec: mean squared log-ratio of the sample enstrophy spectrum to the regime anchor over
     [1, 96). Steering signal (geometric-mean anchor via log_spec_ref)."""
-    return make_spectrum_distance(stats["spec_ref"], kband=kband, n=n, log_ref=stats.get("log_spec_ref"))
+    return make_spectrum_distance(stats["spec_ref"], kband=kband, n=n, log_ref=stats.get("log_spec_ref"),
+                                  shell_weights=cosine_taper(kband[1] - kband[0], taper) if taper else None)
 
 
-def component_spectrum_highk(stats, highk_band=HIGHK_BAND, n=N):
+def component_spectrum_highk(stats, highk_band=HIGHK_BAND, n=N, taper=0):
     """d_spec_highk: same over the deficit band k >= 32 — the sharpest small-scale steering signal."""
-    return make_spectrum_distance(stats["spec_ref"], kband=highk_band, n=n, log_ref=stats.get("log_spec_ref"))
+    return make_spectrum_distance(stats["spec_ref"], kband=highk_band, n=n, log_ref=stats.get("log_spec_ref"),
+                                  shell_weights=cosine_taper(highk_band[1] - highk_band[0], taper) if taper else None)
 
 
 def component_energy(stats):
@@ -116,11 +128,16 @@ _STAT_BUILDERS = {
     "w1": component_vorticity_w1,
 }
 COMPONENT_NAMES = (*_STAT_BUILDERS.keys(), "pde", "pde_local", "align", "spec_residual")
+# Components that need the PER-SAMPLE scale (the v4 conditional anchor). They are the reward
+# analogue of the v7 dial's target gate: a deadband around each sample's own target. Reward.__call__
+# routes the scale to these and to nothing else.
+SCALED_COMPONENTS = ("dose_mid", "dose_hi")
+DOSE_BANDS = {"dose_mid": (16, 32), "dose_hi": (32, 96)}
 
 
 def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
                      std=STD, mean=MEAN, dt=DT, pde_hinge=False, pde_local_frac=0.1, pde_local_patch=1,
-                     highk_band=HIGHK_BAND):
+                     highk_band=HIGHK_BAND, highk_taper=0, dose_deadband=0.2):
     """{name: jitted fn(x)->(B,)} for the requested components. `pde`/`pde_local` need `re`.
     pde_hinge=True -> one-sided pde. pde_local -> localized (worst-`frac`) residual; pde_local_patch
     (P) targets worst PxP regions instead of pixels (P=1 default; P=2..4 matches the ~3px scale).
@@ -128,8 +145,13 @@ def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
     down to where the energy deficit actually starts (deep-cascade spectra, 2026-07-14)."""
     fns = {}
     for nm in names:
-        if nm == "spec_highk":
-            fns[nm] = component_spectrum_highk(stats, highk_band=highk_band)
+        if nm in DOSE_BANDS:
+            fns[nm] = make_band_dose_distance(stats["spec_ref"], DOSE_BANDS[nm], dose_deadband,
+                                              n=n, log_ref=stats.get("log_spec_ref"))
+        elif nm == "spec_highk":
+            fns[nm] = component_spectrum_highk(stats, highk_band=highk_band, taper=highk_taper)
+        elif nm == "spec" and highk_taper:
+            fns[nm] = component_spectrum(stats, taper=highk_taper)
         elif nm in _STAT_BUILDERS:
             fns[nm] = _STAT_BUILDERS[nm](stats)
         elif nm == "pde":
@@ -167,18 +189,28 @@ class Reward:
 
     def __init__(self, stats, re, weights=None, scales=None, names=COMPONENT_NAMES,
                  residual_ref=None, n=N, std=STD, mean=MEAN, dt=DT, pde_hinge=False, pde_local_frac=0.1,
-                 pde_local_patch=1, highk_band=HIGHK_BAND):
+                 pde_local_patch=1, highk_band=HIGHK_BAND, highk_taper=0, dose_deadband=0.2):
         self.re = float(re)
         self.names = tuple(names)
         self.component_fns = build_components(stats, re, names=names, residual_ref=residual_ref,
                                               n=n, std=std, mean=mean, dt=dt, pde_hinge=pde_hinge,
                                               pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch,
-                                              highk_band=highk_band)
+                                              highk_band=highk_band, highk_taper=highk_taper,
+                                              dose_deadband=dose_deadband)
         self.weights = {**DEFAULT_WEIGHTS, **(weights or {})}
         self.scales = dict(scales or {})
 
-    def __call__(self, x0):
-        components = {k: f(x0) for k, f in self.component_fns.items()}
+    def __call__(self, x0, scale=None):
+        """scale: (B,) per-sample conditional factor, required iff a SCALED_COMPONENTS term is
+        active. Ignored by every other component, so scale=None reproduces the plain reward."""
+        components = {}
+        for k, f in self.component_fns.items():
+            if k in SCALED_COMPONENTS:
+                if scale is None:
+                    raise ValueError(f"component '{k}' needs a per-sample scale; none was passed")
+                components[k] = f(x0, scale)
+            else:
+                components[k] = f(x0)
         r = -sum(self.weights.get(k, 0.0) * components[k] / self.scales.get(k, 1.0)
                  for k in self.component_fns if self.weights.get(k, 0.0) != 0.0)
         return r, components
@@ -186,7 +218,8 @@ class Reward:
     @classmethod
     def from_calibration(cls, stats_path, calib_path, re, names=COMPONENT_NAMES, weights=None,
                          pde_hinge=False, scales_re=None, residual_ref=None,
-                         pde_local_frac=0.1, pde_local_patch=1, highk_band=HIGHK_BAND):
+                         pde_local_frac=0.1, pde_local_patch=1, highk_band=HIGHK_BAND,
+                         dose_deadband=0.2):
         """Build from the on-disk artifacts: a regime_stats_re{Re}.npz and reward_calibration.json.
         Pulls the per-Re `scales` and the regime `residual_ref` from the calibration json, and uses
         d_pde_lr (log-ratio) mode. `weights` overrides the json/default weights if given.
@@ -227,7 +260,8 @@ class Reward:
         return cls(stats, re, weights=weights or calib.get("weights"),
                    scales=scales, names=names, residual_ref=r_ref,
                    std=calib.get("std", STD), mean=calib.get("mean", MEAN), pde_hinge=pde_hinge,
-                   pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=highk_band)
+                   pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch,
+                   highk_band=highk_band, dose_deadband=dose_deadband)
 
 
 # ---------------------------------------------------------------- per-input advantage (PPO helper)

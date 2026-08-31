@@ -48,6 +48,10 @@ CKPT = {'r1k-449': 'monitoring/ddpo_re1000_newpool_ckpts/ddpo_re1000_iter0449.pk
         'rs8kkl-799': 'monitoring/ddpo_re8000_rs_kl3_ckpts/ddpo_re1000_iter0799.pkl',
         'st8k-599': 'monitoring/ddpo_re8000_steeredtrain_ckpts/ddpo_re1000_iter0599.pkl',
         'pr2k-549': 'monitoring/ddpo_re2000_placereward_ckpts/ddpo_re1000_iter0549.pkl'}
+# GATE_CKPTS='name:path,...' registers checkpoints trained after this script was written
+# (e.g. the matched set) so the ORIGINAL dials can be re-run against them.
+for _s in filter(None, os.environ.get('GATE_CKPTS', '').split(',')):
+    _p = _s.split(':'); CKPT[_p[0]] = _p[1]
 ddpm, base_params, _ = build_base_ddpm(); ab = ddpm.alpha_bar
 spec_fn = make_spectrum_fn(N)
 ddim20 = build_ddim_denoiser(ddpm.unet, ab, 100, 20)
@@ -57,7 +61,7 @@ B16 = partial(pbatched, per_dev=16)
 
 for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     S = {k: v for k, v in np.load(store_path, allow_pickle=True).items()}
-    if all(f'{R}|{m}|K3|v6gate||ret' in S for m in models):
+    if all(f'{R}|{m}|K3|v6gate||ret' in S for m in models) and not os.environ.get('GATE_FORCE'):
         continue
     d = np.load(f'base_results/regime_stats_re{R}_measured_train.npz')
     ref, lref = d['spec_ref'], d.get('log_spec_ref')
@@ -96,7 +100,7 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
     for m in models:
         for tag, scale in SCALES.items():
             key = f'{R}|{m}|K3|{tag}'
-            if f'{key}||ret' in S:
+            if f'{key}||ret' in S and not os.environ.get('GATE_FORCE'):
                 continue
             P = base_params if m == 'base0' else pickle.load(open(CKPT[m], 'rb'))['params']
             ys = []
@@ -130,6 +134,11 @@ for R, (gt_path, seqs, per, store_path, models) in CFG.items():
                     jax.random.fold_in(k0, i), xb.shape), jax.random.fold_in(k0, i + 1))))
                 jax.clear_caches()
             y = np.concatenate(ys)
+            if os.environ.get('SAVE_FIELDS'):     # store reconstructions so per-band placement
+                fd = f'base_results/fields/re{R}'  # and deficit analyses can be done offline
+                os.makedirs(fd, exist_ok=True)
+                np.savez_compressed(f'{fd}/{m}__K3__{tag}.npz', x=y.astype(np.float16))
+                print(f"    saved fields -> {fd}/{m}__K3__{tag}.npz", flush=True)
             E_s = np.asarray(spec_fn(jnp.asarray(y)))
             E = E_s.mean(0)
             ps_ret = E_s[:, 32:96].sum(1) / E_gt_s[:, 32:96].sum(1)

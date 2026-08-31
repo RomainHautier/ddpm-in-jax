@@ -1,0 +1,13 @@
+\begin{table}[t]
+  \centering
+  \caption{Per-band energy retention at $\mathrm{Re}=1000$: band energy divided by the ground truth's.}
+  \label{tab:re1000-perband-ret}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    configuration & $[1,5)$ & $[5,16)$ & $[16,32)$ & $[32,64)$ & $[64,96)$ \\
+    \midrule
+    base model, unguided & 0.99 & 0.94 & 0.71 & 0.46 & 0.35 \\
+    matched fine-tune, unguided & 0.95 & 0.95 & 0.86 & 0.99 & 1.22 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

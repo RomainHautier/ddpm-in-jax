@@ -42,6 +42,8 @@ def analyse(c):
     res = {}
     for r in c['rows']:
         y = load(c['fdir'], r, c['SIG'])
+        # ALIGNMENT GUARD: see deficit_panel.py
+        assert len(y) == len(gt), f'{r}: {len(y)} triplets vs GT {len(gt)} - mask the GT first'
         per_band = {}
         for lo, hi in c['bands']:
             mg, my = band_energy_map(gt, lo, hi, c['smooth_sigma']), band_energy_map(y, lo, hi, c['smooth_sigma'])

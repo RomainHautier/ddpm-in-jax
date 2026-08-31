@@ -1,0 +1,16 @@
+\begin{table}[t]
+  \centering
+  \caption{In-distribution performance at $\mathrm{Re}=1000$ on 120 held-out triplets. Retention is band energy $E[32,96)$ relative to ground truth; in-band is the share of triplets within $\pm20\%$ of their own truth; slope is $\mathrm{d}\log E/\mathrm{d}\log E_{\mathrm{GT}}$ per triplet ($1$ = tracks each triplet, $0$ = identical dose for all).}
+  \label{tab:re1000-headline}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    configuration & ret. & low-$k$ & place. & resid./GT & MSE & in-band & slope \\
+    \midrule
+    base model, unguided & 0.458 & 0.987 & 0.906 & 0.62 & 0.40 & 0\% & 0.94 \\
+    matched fine-tune, unguided & 0.999 & 0.953 & 0.859 & 0.73 & 0.44 & 72\% & 0.57 \\
+    base + matched dial ($\lambda=3$) & 0.880 & 0.978 & 0.898 & 0.46 & 0.43 & 42\% & 0.11 \\
+    fine-tune + matched dial & 1.052 & 0.943 & 0.856 & 0.39 & 0.47 & 44\% & 0.11 \\
+    base + target-gated dial & 0.959 & 0.989 & 0.907 & 1.00 & 0.41 & 93\% & 0.91 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

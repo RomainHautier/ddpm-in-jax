@@ -1,0 +1,20 @@
+\begin{table}[t]
+  \centering
+  \caption{Every fine-tune carried across every regime, unguided and with the tapered dial at $\lambda=3$. Each pair of columns is retention over $[32,96)$ and the share of triplets within $\pm20\%$ of their own truth. Each model peaks at its training regime; upward of it the model undershoots by a near-constant factor, downward it overshoots.}
+  \label{tab:specialist-transfer}
+  \begin{tabular}{lrrrrrrrrrrrr}
+    \toprule
+    $\mathrm{Re}$ & Re=1000 ft & in-b. & $+$dial & in-b. & Re=2000 ft & in-b. & $+$dial & in-b. & Re=8000 ft & in-b. & $+$dial & in-b. \\
+    \midrule
+    1000 & 0.999 & 72\% & 1.055 & 44\% & 1.578 & 4\% & 1.184 & 39\% & 3.708 & 0\% & 2.068 & 1\% \\
+    1500 & 0.755 & 40\% & 1.025 & 54\% & 1.196 & 49\% & 1.173 & 42\% & 2.779 & 0\% & 1.977 & 1\% \\
+    2000 & 0.609 & 2\% & 0.864 & 51\% & 0.959 & 94\% & 1.005 & 61\% & 2.071 & 0\% & 1.615 & 2\% \\
+    3000 & 0.480 & 0\% & 0.800 & 45\% & 0.754 & 34\% & 0.933 & 64\% & 1.589 & 1\% & 1.408 & 21\% \\
+    4000 & 0.409 & 0\% & 0.730 & 32\% & 0.639 & 5\% & 0.852 & 56\% & 1.310 & 31\% & 1.242 & 40\% \\
+    5000 & 0.363 & 0\% & 0.640 & 6\% & 0.565 & 0\% & 0.747 & 40\% & 1.136 & 49\% & 1.080 & 62\% \\
+    6000 & 0.357 & 0\% & 0.639 & 18\% & 0.551 & 0\% & 0.746 & 36\% & 1.103 & 72\% & 1.070 & 68\% \\
+    7000 & 0.326 & 0\% & 0.632 & 21\% & 0.500 & 0\% & 0.731 & 34\% & 1.009 & 72\% & 1.029 & 61\% \\
+    8000 & 0.308 & 0\% & 0.584 & 11\% & 0.473 & 0\% & 0.678 & 26\% & 0.933 & 74\% & 0.948 & 57\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}

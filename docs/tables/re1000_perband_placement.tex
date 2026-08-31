@@ -1,0 +1,13 @@
+\begin{table}[t]
+  \centering
+  \caption{Per-band placement at $\mathrm{Re}=1000$: correlation of the local band-energy map with the ground truth's, computed per triplet and aggregated (median).}
+  \label{tab:re1000-perband-place}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    configuration & $[1,5)$ & $[5,16)$ & $[16,32)$ & $[32,64)$ & $[64,96)$ \\
+    \midrule
+    base model, unguided & 0.998 & 0.995 & 0.970 & 0.900 & 0.788 \\
+    matched fine-tune, unguided & 0.998 & 0.995 & 0.965 & 0.859 & 0.762 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

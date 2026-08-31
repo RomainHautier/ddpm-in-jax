@@ -104,7 +104,7 @@ def load_regime_stats(path):
 # ---------------------------------------------------------------- distance components
 
 def make_spectrum_distance(spec_ref, kband=(1, 96), n=256, log_ref=None, rel_floor=1e-6,
-                           per_sample_scale=None):
+                           per_sample_scale=None, shell_weights=None):
     """d_spec(x): mean squared log-ratio of the sample's spectrum to the regime reference over the
     shell band [kband[0], kband[1]). Log-space so every decade of the enstrophy cascade counts —
     this is the component that *sees* the high-k deficit MSE is blind to.
@@ -123,19 +123,59 @@ def make_spectrum_distance(spec_ref, kband=(1, 96), n=256, log_ref=None, rel_flo
     lref = jnp.asarray((log_ref if log_ref is not None else np.log(spec_ref + 1e-20))[lo:hi],
                        jnp.float32)
     floor = jnp.exp(lref) * rel_floor
+    # shell_weights: optional non-negative per-shell weight over the band, normalised here. None =
+    # the flat rectangular window this reward has always used, so the training path is unchanged.
+    # A rectangular window is fine for TRAINING (the policy gradient updates weights and the
+    # network's own smoothness washes the edge out - the plain fine-tune shows no artifact at
+    # k=96), but it RINGS when the same reward is applied as a per-step gradient at x-hat-0, which
+    # is what a steering dial does: a wobble at k=91-95 and a step at k=96. See v7_bandgate.py,
+    # which records the extreme form (a 69x spike at k=95) and the cosine roll-off that fixes it.
+    _w = None if shell_weights is None else jnp.asarray(
+        np.asarray(shell_weights, np.float32) / np.sum(shell_weights), jnp.float32)
 
     if per_sample_scale is None:
         def d(x):
             e = jnp.maximum(spec_fn(x)[..., lo:hi], floor)
-            return jnp.mean((jnp.log(e) - lref) ** 2, axis=-1)
+            q = (jnp.log(e) - lref) ** 2
+            return jnp.mean(q, axis=-1) if _w is None else jnp.sum(q * _w, axis=-1)
     else:
         lshift = jnp.log(jnp.asarray(per_sample_scale, jnp.float32))[:, None]     # (B,1)
         def d(x):
             e = jnp.maximum(spec_fn(x)[..., lo:hi], floor * jnp.exp(lshift))
-            return jnp.mean((jnp.log(e) - (lref[None, :] + lshift)) ** 2, axis=-1)
+            q = (jnp.log(e) - (lref[None, :] + lshift)) ** 2
+            return jnp.mean(q, axis=-1) if _w is None else jnp.sum(q * _w, axis=-1)
 
     return jax.jit(d)
 
+
+
+def make_band_dose_distance(spec_ref, band=(32, 96), deadband=0.2, n=256, log_ref=None):
+    """d(x, scale) -> (B,): squared log-ratio of the sample's AGGREGATE energy in `band` to that
+    sample's own target, with a deadband.
+
+    This is the reward analogue of the v7 dial's target gate. The gate multiplies the guidance
+    gradient by min(1, |log(E/t)|/deadband), which fades to zero AT the target - it is a gradient
+    mask and, because the mask depends on x, is not the gradient of any scalar, so DDPO cannot
+    consume it directly. The reward with the same intent is a deadband: zero penalty while the
+    band is within `deadband` (in log space) of its target, growing quadratically outside. Both say
+    "stop pushing once this sample has arrived".
+
+    target_i = spec_ref[band].sum() * scale_i, with scale_i the per-sample conditional factor
+    (v4: the base recon's own fine-band energy over a fixed per-regime constant). No ground truth.
+    """
+    spec_fn = make_spectrum_fn(n)
+    lo, hi = band
+    ref = (np.exp(log_ref[lo:hi]) if log_ref is not None else np.asarray(spec_ref)[lo:hi]).sum()
+    ref = jnp.float32(ref)
+    db = jnp.float32(deadband)
+
+    def d(x, scale):
+        e = jnp.maximum(spec_fn(x)[..., lo:hi].sum(-1), 1e-20)
+        t = ref * jnp.asarray(scale, jnp.float32)
+        z = jnp.abs(jnp.log(e / t))
+        return jnp.maximum(z - db, 0.0) ** 2
+
+    return jax.jit(d)
 
 def make_energy_distance(enstrophy_ref):
     """d_E(x): squared log-ratio of total enstrophy (mean w^2 of the middle frame) to the regime

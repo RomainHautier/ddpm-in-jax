@@ -1,0 +1,15 @@
+\begin{table}[t]
+  \centering
+  \caption{The same two quantities for the models trained at $\mathrm{Re}=2000$ and $8000$, evaluated in their own regime only, each against the base model there.}
+  \label{tab:mse-resid-inregime}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    model & $\mathrm{Re}$ & MSE & resid. & $+$dial MSE & $+$dial resid. \\
+    \midrule
+    Re=2000 fine-tune & 2000 & 0.77 & 0.30 & 0.79 & 0.29 \\
+    \quad base at that regime & 2000 & 0.67 & 0.18 & 0.70 & 0.36 \\
+    Re=8000 fine-tune & 8000 & 1.98 & 0.09 & 2.02 & 0.11 \\
+    \quad base at that regime & 8000 & 1.60 & 0.03 & 1.68 & 0.10 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

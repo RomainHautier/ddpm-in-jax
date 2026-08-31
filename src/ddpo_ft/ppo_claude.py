@@ -455,8 +455,11 @@ class DDPOTrainer:
                                          t_start, self.cond_func, cond_strength, 1.0)
         reward, K, optimizer = self.reward, group_size, optimizer
 
-        def reward_adv(x0):                                   # per-device: reward + per-input advantage
-            r, comps = reward(x0)
+        # scale: (ipd*K,) per-sample conditional factor for the gated dose terms, tiled from the
+        # per-INPUT array exactly as x_cond is. None (the default) reproduces the plain reward
+        # call, so every existing run is bit-identical.
+        def reward_adv(x0, scale=None):                       # per-device: reward + per-input advantage
+            r, comps = reward(x0) if scale is None else reward(x0, scale)
             # RAW within-group reward spread (reward units). THE advantage-health metric: |A| is
             # always ~1 by construction (std-normalized), so a collapsing group_r_std is the real
             # signal that the K samples are too similar (raise sampling_temp; eta already caps at 1).
@@ -481,6 +484,7 @@ class DDPOTrainer:
 
         self._p_rollout = jax.pmap(rollout, axis_name="dev")
         self._p_reward_adv = jax.pmap(reward_adv, axis_name="dev")
+        self._p_reward_adv_sc = jax.pmap(reward_adv, axis_name="dev")
         self._p_update = jax.pmap(update, axis_name="dev")
         # single-device temp=1 rollout (same sampler family) for the live GT-retention probe
         self._eval_rollout = jax.jit(eval_rollout)
@@ -509,7 +513,7 @@ class DDPOTrainer:
             *_, x0 = self._eval_rollout(p, x_start, k2)
         return x0
 
-    def train_iter(self, x_cond, visc=None):
+    def train_iter(self, x_cond, visc=None, scale=None):
         """One OUTER iteration, DATA-PARALLEL. x_cond: (n_inputs, N,N,3) with n_inputs divisible by
         n_dev. Each device gets n_inputs/n_dev inputs (tiled K times), rolls out under theta_old,
         computes its own per-input advantage, and contributes to the pmean'd gradient => effective
@@ -519,6 +523,9 @@ class DDPOTrainer:
         ipd = x_cond.shape[0] // nd                                    # inputs per device
         xc = x_cond.reshape(nd, ipd, *x_cond.shape[1:])               # (nd, ipd, N,N,3)
         xc = jnp.repeat(xc, self.group_size, axis=1)                  # (nd, ipd*K, N,N,3) input-major/device
+        sc = None
+        if scale is not None:                                          # tile IDENTICALLY to xc
+            sc = jnp.repeat(jnp.asarray(scale, jnp.float32).reshape(nd, ipd), self.group_size, axis=1)
         noise = jax.random.normal(self._next_key(), xc.shape)
         x_start = self._sqrt_ab * xc + self._sqrt_1mab * noise        # SDEdit start, per device
         keys = jax.random.split(self._next_key(), nd)                 # (nd, 2) one rollout key per device
@@ -528,7 +535,8 @@ class DDPOTrainer:
             states, actions, logp_old, x0 = self._p_rollout(self.params, x_start, keys, vd)
         else:
             states, actions, logp_old, x0 = self._p_rollout(self.params, x_start, keys)
-        r, adv, comps, grp_std = self._p_reward_adv(x0)               # (nd, ipd*K) each
+        r, adv, comps, grp_std = (self._p_reward_adv(x0) if sc is None
+                                  else self._p_reward_adv_sc(x0, sc))  # (nd, ipd*K) each
         losses = []
         for _ in range(self.n_inner):
             if self._ddim_cond:

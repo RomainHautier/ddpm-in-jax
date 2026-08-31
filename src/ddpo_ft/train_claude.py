@@ -33,7 +33,7 @@ import optax                                      # noqa: E402
 import yaml                                       # noqa: E402
 
 from ppo_claude import DDPOTrainer                # noqa: E402
-from rewards_claude import Reward                 # noqa: E402
+from rewards_claude import Reward, COMPONENT_NAMES  # noqa: E402
 from src.models.model import DDPM                 # noqa: E402
 from src.sequence_inference import (               # noqa: E402
     build_triplets, grid_downsample_degrade, load_sequence, sparse_nnfill_degrade)
@@ -111,7 +111,7 @@ def _degrade(seq, s, grid_factor):
 
 
 def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, grid_factor=None,
-                          base_denoise=None):
+                          base_denoise=None, with_scale=False):
     """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED nnfill input triplets, drawn from the given
     Re=1000 sequences. grid_factor=None -> random-1024 task degradation; else clean grid-`factor`
     (e.g. 4 -> 4096-pt regular grid). Each triplet is one conditioning field; cycles forever.
@@ -129,9 +129,26 @@ def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, g
     if base_denoise is not None:
         pool = base_denoise(pool)                             # low-res -> frozen-base DDIM reconstruction
         print(f"    base-DDIM init: input pool replaced with base reconstruction -> {pool.shape}", flush=True)
+    scale = None
+    if with_scale:
+        # The v4/v7 CONDITIONAL scale, GT-free: each input's own base-recon fine-band energy over a
+        # FIXED per-regime constant (the pool mean - v7 records that a batch mean degrades the
+        # predictor from 93% to 78% within +-20%). base_ddim_init is required, since the pool must
+        # BE the base reconstruction for this to be the same quantity the dial uses.
+        from src.rewards import make_spectrum_fn
+        _sf = make_spectrum_fn(256)
+        _E = np.concatenate([np.asarray(_sf(jnp.asarray(pool[i:i + 64], jnp.float32)))
+                             for i in range(0, len(pool), 64)])
+        obs = _E[:, 32:96].sum(1)
+        C_R = float(obs.mean())
+        scale = (obs / C_R).astype(np.float32)
+        print(f"    conditional scale: C_R={C_R:.4e}, per-input scale p10/50/90 = "
+              f"{np.percentile(scale,10):.2f}/{np.percentile(scale,50):.2f}/{np.percentile(scale,90):.2f}",
+              flush=True)
     while True:
         idx = rng.choice(len(pool), n_inputs, replace=False)
-        yield jnp.asarray(pool[idx], dtype=jnp.float32)
+        xb = jnp.asarray(pool[idx], dtype=jnp.float32)
+        yield (xb, scale[idx]) if scale is not None else xb
 
 
 def save_ckpt(params, opt_state, outer, save_dir, ema_params=None, ema_rate=None):
@@ -219,6 +236,7 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
+         dose_weight=0.0, dose_deadband=0.2,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
@@ -281,6 +299,16 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     # balance error, see diag decomposition) the DOMINANT reward term, with spec_highk as the
     # anti-smoothing guard.
     exp2_weights = {"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": pde_weight}
+    if dose_weight > 0:
+        # THE GATED FORMULATION AS A REWARD. The v7 dial gates its gradient by
+        # min(1, |log(E/t)|/0.2), which fades to zero at each sample's OWN target. That mask
+        # depends on x, so it is not the gradient of any scalar and DDPO cannot consume it. The
+        # reward with the same intent is a DEADBAND around the same per-sample target: no penalty
+        # while the band is within 20% of where that sample should be, quadratic outside.
+        exp2_weights["dose_mid"] = dose_weight
+        exp2_weights["dose_hi"] = dose_weight
+        print(f"    GATED DOSE ACTIVE: dose_mid/dose_hi weight={dose_weight}, deadband={dose_deadband} "
+              f"on per-sample conditional targets (bands [16,32) and [32,96))", flush=True)
     if pde_weight != 1.0:
         print(f"    pde-heavy: pde weight={pde_weight} (target the large-scale temporal-balance residual; "
               f"spec_highk=3.0 guards the energy)", flush=True)
@@ -307,7 +335,9 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     reward = Reward.from_calibration(
         stats_path, "base_results/reward_calibration.json",
         re=re, weights=exp2_weights, pde_hinge=not pde_two_sided, scales_re=scales_re,
-        pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=(highk_lo, 96))
+        pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=(highk_lo, 96),
+        names=COMPONENT_NAMES + (("dose_mid", "dose_hi") if dose_weight > 0 else ()),
+        dose_deadband=dose_deadband)
     print("reward weights:", reward.weights, f"| pde_hinge={not pde_two_sided}"
           + ("  [TWO-SIDED pde: pushes residual UP toward the floor when below it]" if pde_two_sided else ""), flush=True)
 
@@ -377,7 +407,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                               chain_starts=chain_starts, ddim_stride=ddim_stride)
 
     inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs,
-                                    grid_factor=grid_factor, base_denoise=base_denoise)
+                                    grid_factor=grid_factor, base_denoise=base_denoise,
+                                    with_scale=dose_weight > 0)
     samp = (f"ddim({policy_ddim_steps} steps, eta={eta}"
             f"{f', S={list(chain_starts)}' if chain_starts else ''})" if sampler == "ddim" else "ddpm")
     print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: sampler={samp} t_start={t_start} B={n_inputs*group_size} "
@@ -461,7 +492,9 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
 
     for outer in range(n_outer):
         gi = start_iter + outer
-        m = trainer.train_iter(next(inputs))
+        _b = next(inputs)
+        m = (trainer.train_iter(_b[0], scale=_b[1]) if isinstance(_b, tuple)
+             else trainer.train_iter(_b))
         if ema_params is not None:
             import jax as _jax
             ema_params = _jax.tree_util.tree_map(
@@ -560,6 +593,13 @@ if __name__ == "__main__":
                     help="fixed t-interval per DDIM policy step (e.g. 10 -> chain from S runs "
                          "[S, S-10, ..., 10, 1] = S/10 steps). Overrides policy_ddim_steps. With "
                          "'--chain_starts 150 100 50 --ddim_stride 10' -> 15+10+5=30 policy steps")
+    ap.add_argument("--dose_weight", type=float, default=0.0,
+                    help="THE GATED FORMULATION AS A REWARD: weight on the deadband dose terms over "
+                         "[16,32) and [32,96), each aimed at the sample's OWN conditional target "
+                         "(base-recon fine-band energy / fixed per-regime constant, GT-free). 0 = off. "
+                         "Requires --base_ddim_init, since the input pool must BE the base recon.")
+    ap.add_argument("--dose_deadband", type=float, default=0.2,
+                    help="log-space half-width of the dose deadband (v7's gate uses 0.2 = 20%)")
     ap.add_argument("--highk_lo", type=int, default=32,
                     help="lower edge of the spec_highk reward band (default 32; 10 = extend to where "
                          "the energy deficit starts)")
