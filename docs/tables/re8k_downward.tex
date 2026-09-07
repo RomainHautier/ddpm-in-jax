@@ -1,0 +1,20 @@
+\begin{table}[t]
+  \centering
+  \caption{The $Re{=}8000$ finetune carried down the regime ladder: retention over $[32,96)$ and the share of triplets within $\pm20\%$ of their own truth, under the standard K3 chain (unguided, tapered dial at $\lambda=3$, and the target-gated dial), and with the chain-shortened sampler, unguided, where a rung has been evaluated on the test pool. Each chain is selected per regime on the validation pool before the single test evaluation. Guidance cannot remove the overshoot far below the home regime; shortening the chain can.}
+  \label{tab:re8k-downward}
+  \begin{tabular}{lrrrrrrrrr}
+    \toprule
+    $\mathrm{Re}$ & K3 ung. & in-b. & K3 $+$dial & in-b. & K3 $+$gate & in-b. & chain & ret & in-b. \\
+    \midrule
+    1000 & 3.71 & 0\% & 2.07 & 1\% & 1.38 & 19\% & [100] & 1.04 & 70\% \\
+    1500 & 2.78 & 0\% & 1.98 & 1\% & 1.45 & 2\% & [120] & 1.09 & 64\% \\
+    2000 & 2.07 & 0\% & 1.61 & 2\% & 1.28 & 26\% & [125] & 0.93 & 94\% \\
+    3000 & 1.59 & 1\% & 1.41 & 21\% & 1.25 & 31\% & [150] & 0.97 & 84\% \\
+    4000 & 1.31 & 31\% & 1.24 & 40\% & 1.17 & 56\% & [160] & 0.90 & 79\% \\
+    5000 & 1.14 & 49\% & 1.08 & 62\% & 1.03 & 91\% & -- & -- & -- \\
+    6000 & 1.10 & 72\% & 1.07 & 68\% & 1.04 & 94\% & -- & -- & -- \\
+    7000 & 1.01 & 72\% & 1.03 & 61\% & 1.03 & 92\% & -- & -- & -- \\
+    8000 & 0.93 & 74\% & 0.95 & 57\% & 0.95 & 100\% & -- & -- & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table}

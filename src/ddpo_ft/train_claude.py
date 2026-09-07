@@ -57,6 +57,13 @@ RE_CFG = {
                train_seqs=[0, 1, 2, 3], probe_seq=4),
     500:  dict(gt="flow-data/kf_re500_256_20seed.npy",    stats="base_results/regime_stats_re500.npz",
                train_seqs=[8, 9, 10, 11], probe_seq=0),
+    # Re=4000 (2026-08-31): the coverage-seam specialist between mt2k and r8kp02. Same layout as
+    # Re=8000: generated pool, measured anchor, train 0-7, validation 8-11 (nomination), test 12-19.
+    # Re=5000 was rejected - the base metrics and the gate's in-band (80% -> 28%) both show
+    # anomalies in that regime's generated data.
+    4000: dict(gt="flow-data/generated/gen_fnons_re4000_kf_1024to256_20seq.npy",
+               stats="base_results/regime_stats_re4000_measured_train.npz",
+               train_seqs=[0, 1, 2, 3, 4, 5, 6, 7], probe_seq=8),
     # Re=8000 (Track-A statistics-calibrated specialist, 2026-08-19): single-pipeline gen data,
     # measured GT-statistics anchor; val/test = seqs 8-19 stay untouched.
     8000: dict(gt="flow-data/generated/gen_fnons_re8000_kf_1024to256_20seq.npy",
@@ -111,7 +118,7 @@ def _degrade(seq, s, grid_factor):
 
 
 def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, grid_factor=None,
-                          base_denoise=None, with_scale=False):
+                          base_denoise=None, with_scale=False, low_ref=None):
     """Yield (n_inputs, 256, 256, 3) batches of NORMALIZED nnfill input triplets, drawn from the given
     Re=1000 sequences. grid_factor=None -> random-1024 task degradation; else clean grid-`factor`
     (e.g. 4 -> 4096-pt regular grid). Each triplet is one conditioning field; cycles forever.
@@ -145,6 +152,15 @@ def sparse_input_iterator(gt_path, seqs, n_inputs, mean=MEAN, std=STD, seed=0, g
         print(f"    conditional scale: C_R={C_R:.4e}, per-input scale p10/50/90 = "
               f"{np.percentile(scale,10):.2f}/{np.percentile(scale,50):.2f}/{np.percentile(scale,90):.2f}",
               flush=True)
+        if low_ref is not None:
+            # dose_low column: recon [1,5) energy over the STATS reference for that band, so
+            # ref * scale inside the component reproduces each sample's own recon energy —
+            # the large-scale anchor is per sample but never touched by the fine-band factor
+            obs_low = _E[:, 1:7].sum(1)
+            scale = np.stack([scale, (obs_low / float(low_ref)).astype(np.float32)], axis=1)
+            print(f"    low-band anchor column: ref={float(low_ref):.4e}, obs/ref p10/50/90 = "
+                  f"{np.percentile(scale[:,1],10):.2f}/{np.percentile(scale[:,1],50):.2f}/"
+                  f"{np.percentile(scale[:,1],90):.2f}", flush=True)
     while True:
         idx = rng.choice(len(pool), n_inputs, replace=False)
         xb = jnp.asarray(pool[idx], dtype=jnp.float32)
@@ -236,7 +252,8 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
          eval_every=10, lr=5e-5, resume=None, re=1000, stats=None, scales_re=None,
          pde_local_weight=0.0, pde_local_patch=2, pde_local_frac=0.1, align_weight=0.0,
          spec_residual_weight=0.0, pde_weight=1.0, grid_factor=None,
-         dose_weight=0.0, dose_deadband=0.2,
+         dose_weight=0.0, dose_deadband=0.2, dose_lowmid_weight=0.0, dose_low_weight=0.0,
+         pure_gate=False, anchor_weight=0.5,
          base_ddim_init=False, ddim_steps=20, ddim_t_start=100, t_start=None,
          sampler="ddpm", policy_ddim_steps=20, eta=1.0, chain_starts=None, ddim_stride=None,
          highk_lo=32, policy_ema=0.0, clip_eps=0.2, sampling_temp=None, kl_coef=None, seed=None,
@@ -299,6 +316,16 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
     # balance error, see diag decomposition) the DOMINANT reward term, with spec_highk as the
     # anti-smoothing guard.
     exp2_weights = {"spec": 0.5, "spec_highk": 3.0, "energy": 0.1, "w1": 0.0, "pde": pde_weight}
+    if pure_gate:
+        # THE DIAL'S OWN STRUCTURE AS THE REWARD: a light per-sample-scaled full-band anchor
+        # (v8 weight 0.5, at raw scale like the dose terms) plus the gated band terms, NOTHING
+        # ungated pushing toward the ensemble — no spec, no spec_highk, no energy. Only the pde
+        # guard survives (guidance leans on the frozen prior for physics; training moves the
+        # weights, so the residual needs watching).
+        exp2_weights = {"spec": 0.0, "spec_highk": 0.0, "energy": 0.0, "w1": 0.0,
+                        "pde": pde_weight, "spec_anchor": anchor_weight}
+        print(f"    PURE GATE: reward = {anchor_weight}*scaled spec anchor [1,96) + gated dose "
+              f"terms + pde (w={pde_weight}); spec/spec_highk/energy OFF", flush=True)
     if dose_weight > 0:
         # THE GATED FORMULATION AS A REWARD. The v7 dial gates its gradient by
         # min(1, |log(E/t)|/0.2), which fades to zero at each sample's OWN target. That mask
@@ -309,6 +336,18 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         exp2_weights["dose_hi"] = dose_weight
         print(f"    GATED DOSE ACTIVE: dose_mid/dose_hi weight={dose_weight}, deadband={dose_deadband} "
               f"on per-sample conditional targets (bands [16,32) and [32,96))", flush=True)
+    if dose_lowmid_weight > 0:
+        # v8's low-band term as a reward: the deficit starts ~k=7, so [7,16) gets its own
+        # deadband dose term on the same per-sample conditional target
+        exp2_weights["dose_lowmid"] = dose_lowmid_weight
+        print(f"    DOSE LOWMID ACTIVE: weight={dose_lowmid_weight} on [7,16), deadband={dose_deadband}",
+              flush=True)
+    if dose_low_weight > 0:
+        # v9's large-scale anchor as a reward: [1,7) held at each sample's OWN recon energy
+        # (tight deadband 0.05) — guards the fine-tune's low-band leak without fine-band scaling
+        exp2_weights["dose_low"] = dose_low_weight
+        print(f"    DOSE LOW ACTIVE: weight={dose_low_weight} on [1,7), deadband=0.05, target = "
+              f"each sample's own recon low-band energy", flush=True)
     if pde_weight != 1.0:
         print(f"    pde-heavy: pde weight={pde_weight} (target the large-scale temporal-balance residual; "
               f"spec_highk=3.0 guards the energy)", flush=True)
@@ -336,7 +375,10 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
         stats_path, "base_results/reward_calibration.json",
         re=re, weights=exp2_weights, pde_hinge=not pde_two_sided, scales_re=scales_re,
         pde_local_frac=pde_local_frac, pde_local_patch=pde_local_patch, highk_band=(highk_lo, 96),
-        names=COMPONENT_NAMES + (("dose_mid", "dose_hi") if dose_weight > 0 else ()),
+        names=COMPONENT_NAMES + (("dose_mid", "dose_hi") if dose_weight > 0 else ())
+        + (("dose_lowmid",) if dose_lowmid_weight > 0 else ())
+        + (("dose_low",) if dose_low_weight > 0 else ())
+        + (("spec_anchor",) if pure_gate else ()),
         dose_deadband=dose_deadband)
     print("reward weights:", reward.weights, f"| pde_hinge={not pde_two_sided}"
           + ("  [TWO-SIDED pde: pushes residual UP toward the floor when below it]" if pde_two_sided else ""), flush=True)
@@ -406,9 +448,17 @@ def main(smoke=False, n_outer=None, save_dir=None, save_every=20,
                               sampling_temp=temp, sampler=sampler, ddim_steps=policy_ddim_steps, eta=eta,
                               chain_starts=chain_starts, ddim_stride=ddim_stride)
 
+    _low_ref = None
+    if dose_low_weight > 0:
+        # the same reference make_band_dose_distance uses for the [1,5) band, so that
+        # ref * scale-column reproduces each sample's own recon low-band energy exactly
+        _low_ref = (float(np.exp(_stats_d["log_spec_ref"][1:7]).sum())
+                    if "log_spec_ref" in _stats_d else float(np.asarray(_stats_d["spec_ref"])[1:7].sum()))
     inputs = sparse_input_iterator(cfg["gt"], seqs=cfg["train_seqs"], n_inputs=n_inputs,
                                     grid_factor=grid_factor, base_denoise=base_denoise,
-                                    with_scale=dose_weight > 0)
+                                    with_scale=(dose_weight > 0 or dose_lowmid_weight > 0
+                                                or dose_low_weight > 0 or pure_gate),
+                                    low_ref=_low_ref)
     samp = (f"ddim({policy_ddim_steps} steps, eta={eta}"
             f"{f', S={list(chain_starts)}' if chain_starts else ''})" if sampler == "ddim" else "ddpm")
     print(f"\n=== DDPO {'SMOKE' if smoke else 'run'}: sampler={samp} t_start={t_start} B={n_inputs*group_size} "
@@ -600,6 +650,20 @@ if __name__ == "__main__":
                          "Requires --base_ddim_init, since the input pool must BE the base recon.")
     ap.add_argument("--dose_deadband", type=float, default=0.2,
                     help="log-space half-width of the dose deadband (v7's gate uses 0.2 = 20%)")
+    ap.add_argument("--dose_lowmid_weight", type=float, default=0.0,
+                    help="v8 low-band term as a reward: deadband dose over [7,16) on the same "
+                         "per-sample conditional target (0 = off; v8 guidance used weight 2)")
+    ap.add_argument("--dose_low_weight", type=float, default=0.0,
+                    help="v9 large-scale anchor as a reward: [1,7) held at each sample's OWN recon "
+                         "energy, deadband 0.05 (0 = off; guards the fine-tune low-band leak)")
+    ap.add_argument("--anchor_weight", type=float, default=0.5,
+                    help="pure_gate only: weight of the per-sample-scaled full-band spec anchor "
+                         "(0.5 = the dial's; 3.0 = the strong-shape variant that owns per-shell "
+                         "structure the band-total dose terms are blind to)")
+    ap.add_argument("--pure_gate", action="store_true",
+                    help="mirror the v8 dial exactly: 0.5*per-sample-scaled spec anchor [1,96) + "
+                         "the gated dose terms + pde guard; spec/spec_highk/energy dropped (no "
+                         "ungated ensemble push). Use with --dose_weight etc.")
     ap.add_argument("--highk_lo", type=int, default=32,
                     help="lower edge of the spec_highk reward band (default 32; 10 = extend to where "
                          "the energy deficit starts)")

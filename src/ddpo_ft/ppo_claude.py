@@ -525,7 +525,9 @@ class DDPOTrainer:
         xc = jnp.repeat(xc, self.group_size, axis=1)                  # (nd, ipd*K, N,N,3) input-major/device
         sc = None
         if scale is not None:                                          # tile IDENTICALLY to xc
-            sc = jnp.repeat(jnp.asarray(scale, jnp.float32).reshape(nd, ipd), self.group_size, axis=1)
+            sca = jnp.asarray(scale, jnp.float32)                      # (B,) or (B, S) multi-column
+            shp = (nd, ipd) if sca.ndim == 1 else (nd, ipd, sca.shape[-1])
+            sc = jnp.repeat(sca.reshape(shp), self.group_size, axis=1)
         noise = jax.random.normal(self._next_key(), xc.shape)
         x_start = self._sqrt_ab * xc + self._sqrt_1mab * noise        # SDEdit start, per device
         keys = jax.random.split(self._next_key(), nd)                 # (nd, 2) one rollout key per device

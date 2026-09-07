@@ -1,0 +1,20 @@
+\begin{table}[H]
+  \centering
+  \caption{Physical fidelity at $Re{=}1000$: PDE residual relative to the ground truth's (1 = the truth's own roughness, below 1 = over-smooth), pixel MSE against the paired truth, and median per-triplet placement of the fine scale energy. The gate restores the residual to the truth's level at no MSE or placement cost, where the plain dial smooths the flow below it.}
+  \label{tab:re1k-gate-physfid}
+  \begin{tabular}{lrrr}
+    \toprule
+    configuration & resid./GT & MSE & place. \\
+    \midrule
+    base & 0.63 & 0.40 & 0.903 \\
+    base $+$ dial & 0.42 & 0.43 & 0.901 \\
+    base $+$ gate & 1.02 & 0.42 & 0.907 \\
+    \midrule
+    ft & 0.73 & 0.44 & 0.859 \\
+    ft $+$ dial & 0.37 & 0.47 & 0.857 \\
+    ft $+$ gate & 0.74 & 0.46 & 0.866 \\
+    \midrule
+    gated-dose ft (weights) & 0.99 & 0.46 & 0.880 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

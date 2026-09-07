@@ -1,0 +1,42 @@
+% Per-sample statistics paragraph, rewritten. All numbers verified against the audit
+% store: ensemble k>=16 share 5.86%; per-triplet total energy 2.8e9..6.2e9; total-energy
+% max deviations base 7.0% / ft 8.0% (base+dial 8.8% / ft+dial 9.9% if wanted);
+% k>=16 per-sample: base 0% in-band, slope 0.98, mean dose 0.67x; ft 88%, slope 0.78,
+% mean 0.93x; ft+dial 70%, slope 0.39; base+dial 50%, slope 0.40.
+% Figure caption should read k>=16, not k>=32.
+
+\paragraph{In-distribution per sample statistics} We have shown that sampling guidance
+and DDPO finetuning address part of the energy deficit of the baseline model over the
+mid to high-$k$ range, and that both enable the recovery of SR samples which are more
+energetically and physically consistent with the flow's ensemble statistics in the base
+model's home regime. We now determine whether these improvements over the mean
+statistics of the SR generations translate to the individual sample.\newline
+
+We first justify the need for such an analysis. Figure
+\ref{fig:re-1000-k16-energy-breakdown} shows that the total energy carried by individual
+triplets spans the $E\approx[3,6]\times10^{9}$ range, with only $5.86\%$ of that energy
+contained at wavenumbers $k\geq16$. This study places a specific emphasis on restoring
+the correct mid to high-$k$ energy content of each individual sample, a quantity which
+constitutes only a small part of the total sample energy, without allowing the injection
+process to revert to the group mean dose. Over the full $k$ range, the base and
+finetuned models both recover the total energy of each triplet accurately, with maximum
+deviations $\lvert E_{x_0} - E_{GT}\rvert / E_{GT}$ of $7.0\%$ and $8.0\%$ respectively.
+Restricting the range to $k\geq16$, where the conditional dose must be read from the
+input rather than inherited from the large scales, both models degrade. The base model
+tracks the per-sample energy variation almost perfectly, with a slope of $0.98$, but
+applies a near-constant $0.67\times$ dose, so that not a single sample falls within
+$20\%$ of its own truth. Its failure is purely multiplicative. The finetuned model
+raises the mean dose to $0.93\times$ and places $88\%$ of its samples within the
+$20\%$ tolerance, at the cost of flattening the slope to $0.78$. Samples carrying less
+$k\geq16$ energy than the ensemble mean are relatively over-energised and samples
+carrying more are under-energised, the signature of a reward formulation anchored to
+ensemble statistics pulling every generation toward the group level.\newline
+This flattening is considerably stronger when sampling guidance is applied at inference
+time. The guidance gradient reaches the sample through a reward anchored to the
+ensemble statistics of the regime, and it is therefore blind to the conditional dose
+each sample requires, pushing every generation toward the ensemble mean. Under
+guidance, the tolerance accuracy of the finetuned model falls from $88\%$ to $70\%$ and
+its slope collapses from $0.78$ to $0.39$, while the base model rises from $0\%$ to
+$50\%$ with a slope of $0.40$. The guided base model reaches half of its samples not by
+reading their content but by dosing all of them toward the ensemble mean, which its
+flattened slope makes explicit.\newline

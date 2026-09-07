@@ -1,0 +1,27 @@
+\begin{table}[H]
+  \centering
+  \caption{Reconstruction quality of the selected inference configuration of the $Re{=}8000$ specialist, with and without the tapered dial, against the regime's own fine tune under its home configuration and under a dial whose strength was selected on validation ($\lambda{=}0.5$ at both regimes). Placement is the median per sample correlation of the local fine band energy map with the ground truth's, MSE is the reconstruction error, the residual is relative to the ground truth's, in-band is the share of samples within $\pm20\%$ of their own band energy, and the slope is $\mathrm{d}\log E/\mathrm{d}\log E_{\mathrm{GT}}$ per sample, where $1$ tracks each sample's truth and $0$ applies one dose to all. At $Re{=}8000$ the ladder model is the in regime model, so the unguided K3 row serves as both.}
+  \label{tab:bestconfig-vs-home}
+  \begin{tabular}{llrrrrr}
+    \toprule
+    $\mathrm{Re}$ & configuration & placement & MSE & resid. & in-band & slope \\
+    \midrule
+    1000 & chain $[100]$ & 0.854 & 0.39 & 1.17 & 70\% & 0.66 \\
+     & chain $[100]$ $+$ dial & 0.858 & 0.40 & 0.36 & 43\% & 0.11 \\
+     & in-regime ft & 0.859 & 0.44 & 0.73 & 72\% & 0.57 \\
+     & in-regime ft $+$ dial ($\lambda{=}0.5$) & 0.858 & 0.45 & 0.59 & 54\% & 0.34 \\
+    \midrule
+    2000 & chain $[125]$ & 0.839 & 0.67 & 0.36 & 94\% & 0.62 \\
+     & chain $[125]$ $+$ dial & 0.843 & 0.68 & 0.27 & 54\% & 0.21 \\
+     & in-regime ft & 0.820 & 0.77 & 0.30 & 94\% & 0.65 \\
+    \midrule
+    4000 & chain $[160]$ & 0.780 & 1.19 & 0.16 & 79\% & 0.55 \\
+     & chain $[160]$ $+$ dial & 0.778 & 1.25 & 0.22 & 66\% & 0.24 \\
+     & in-regime ft & 0.734 & 1.33 & 0.19 & 74\% & 0.50 \\
+     & in-regime ft $+$ dial ($\lambda{=}0.5$) & 0.734 & 1.34 & 0.19 & 71\% & 0.44 \\
+    \midrule
+    8000 & K3 (in-regime ft) & 0.703 & 1.98 & 0.09 & 74\% & 0.43 \\
+     & K3 $+$ dial & 0.700 & 2.02 & 0.11 & 57\% & 0.25 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

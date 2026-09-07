@@ -1,0 +1,17 @@
+\begin{table}[t]
+  \centering
+  \caption{Statistics of the single-step correction $\Delta\epsilon=\epsilon_{ft}-\epsilon_{base}$ on identical noised inputs from the $Re{=}1000$ test pool, per sample, over $t\in\{150,100,50\}$ and two noise draws ($36$ cells). The $Re{=}1000$ finetune's correction carries a $k\geq32$ power fraction of 0.58 $\pm$ 0.05.}
+  \label{tab:eps-correction-stats}
+  \begin{tabular}{lrr}
+    \toprule
+    & $Re{=}2000$ ft & $Re{=}8000$ ft \\
+    \midrule
+    $\|\Delta\epsilon\|$ vs $Re{=}1000$ ft & 1.38 $\pm$ 0.10 & 2.29 $\pm$ 0.19 \\
+    cosine with $Re{=}1000$ ft & 0.53 $\pm$ 0.09 & 0.55 $\pm$ 0.07 \\
+    cosine $Re{=}8000$ vs $Re{=}2000$ &  & 0.64 $\pm$ 0.09 \\
+    variance explained by span of the other two &  & 0.47 $\pm$ 0.10 \\
+    support overlap of $|\Delta\epsilon|$ with $Re{=}1000$ ft & 0.48 $\pm$ 0.09 & 0.51 $\pm$ 0.07 \\
+    fraction of correction power at $k\geq32$ & 0.64 $\pm$ 0.07 & 0.70 $\pm$ 0.06 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

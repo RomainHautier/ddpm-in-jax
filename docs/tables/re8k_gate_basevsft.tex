@@ -1,0 +1,16 @@
+\begin{table}[H]
+  \centering
+  \caption{Guided base against the guided $Re{=}8000$ fine tune at $Re{=}8000$, both under the per-band per-sample target gate. Per-band retention, then the per-sample statistics of the fine band $[32,96)$, placement, residual ratio to ground truth and MSE.}
+  \label{tab:re8k-gate-basevsft}
+  \begin{tabular}{lrrrrrrrrrr}
+    \toprule
+    configuration & $[1,5)$ & $[5,16)$ & $[16,32)$ & $[32,64)$ & $[64,96)$ & in-band & slope & place. & resid./GT & MSE \\
+    \midrule
+    base & 0.987 & 0.955 & 0.597 & 0.208 & 0.035 & 0\% & 1.13 & 0.783 & 0.03 & 1.60 \\
+    base $+$ gate & 0.987 & 0.958 & 0.829 & 0.699 & 0.652 & 14\% & 0.80 & 0.739 & 0.12 & 1.76 \\
+    \midrule
+    Re=8000 ft & 0.946 & 0.987 & 0.891 & 1.070 & 0.270 & 74\% & 0.43 & 0.703 & 0.09 & 1.98 \\
+    Re=8000 ft $+$ gate & 0.942 & 0.985 & 0.925 & 1.015 & 0.555 & 100\% & 0.77 & 0.700 & 0.10 & 2.02 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

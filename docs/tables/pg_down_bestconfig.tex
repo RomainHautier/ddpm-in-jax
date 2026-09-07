@@ -1,0 +1,28 @@
+\begin{table}[H]
+  \centering
+  \caption{Downward transfer of the gate-reward specialists with the inference configuration selected ground-truth free at each rung. Three candidates per rung (the published chain alone, the chain with the ensemble matched-objective dial, and the chain with the per-sample gated dial) reconstruct the validation pool, and the configuration whose mean spectrum lies closest to the ensemble anchor in per-shell log distance is retained, then evaluated once on the test pool. At $Re{=}6000$ and $8000$ the upward transferred $Re{=}4000$ specialist under the gate is shown alongside, matching or exceeding the in-regime rows on per-sample statistics. The gated dial on the chain is retained at every rung (ties within selection noise resolved toward it), restoring the ensemble level while preserving the per-sample conditioning the ensemble dial destroys. In-band is the share of triplets whose fine band dose lands within $\pm20\%$ of their own truth, and slope is $\mathrm{d}\log E/\mathrm{d}\log E_{\mathrm{GT}}$ per triplet over the fine band.}
+  \label{tab:pg-down-bestconfig}
+  \begin{tabular}{llrrrrr}
+    \toprule
+    $\mathrm{Re}$ & configuration & ret. & resid./GT & MSE & in-band & slope \\
+    \midrule
+    \multicolumn{7}{l}{$Re{=}8000$ specialist (pg8k)} \\
+    \midrule
+    1000 & chain $[100]$ $+$ gated dial & 1.004 & 1.05 & 0.39 & 94\% & 0.95 \\
+    2000 & chain $[125]$ $+$ gated dial & 0.955 & 0.34 & 0.68 & 98\% & 0.93 \\
+    4000 & chain $[160]$ $+$ gated dial & 0.995 & 0.18 & 1.25 & 96\% & 0.91 \\
+    6000 & chain $[160]$ $+$ gated dial & 0.902 & 0.15 & 1.52 & 92\% & 0.91 \\
+         & pg4k, K3 $+$ gated dial & 0.986 & 0.15 & 1.61 & 95\% & 0.73 \\
+    8000 & chain $[150,100,50]$ $+$ gated dial (home) & 1.016 & 0.09 & 2.02 & 94\% & 0.78 \\
+         & pg4k, K3 $+$ gated dial & 0.907 & 0.10 & 1.89 & 95\% & 0.81 \\
+    \midrule
+    \multicolumn{7}{l}{$Re{=}4000$ specialist (pg4k), downward and upward} \\
+    \midrule
+    1000 & chain $[100]$ $+$ gated dial & 0.996 & 1.07 & 0.39 & 95\% & 0.93 \\
+    2000 & chain $[125]$ $+$ gated dial & 0.930 & 0.37 & 0.67 & 98\% & 0.89 \\
+    4000 & chain $[150,100,50]$ $+$ gated dial (home) & 1.113 & 0.21 & 1.35 & 74\% & 0.80 \\
+    6000 & K3 $+$ gated dial & 0.986 & 0.15 & 1.61 & 95\% & 0.73 \\
+    8000 & K3 $+$ gated dial & 0.907 & 0.10 & 1.89 & 95\% & 0.81 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

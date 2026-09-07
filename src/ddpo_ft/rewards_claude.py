@@ -23,6 +23,7 @@ for _p in (_ROOT, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import jax                                       # noqa: E402
 import jax.numpy as jnp                          # noqa: E402
 import numpy as np                               # noqa: E402
 
@@ -131,8 +132,38 @@ COMPONENT_NAMES = (*_STAT_BUILDERS.keys(), "pde", "pde_local", "align", "spec_re
 # Components that need the PER-SAMPLE scale (the v4 conditional anchor). They are the reward
 # analogue of the v7 dial's target gate: a deadband around each sample's own target. Reward.__call__
 # routes the scale to these and to nothing else.
-SCALED_COMPONENTS = ("dose_mid", "dose_hi")
-DOSE_BANDS = {"dose_mid": (16, 32), "dose_hi": (32, 96)}
+SCALED_COMPONENTS = ("dose_mid", "dose_hi", "dose_lowmid", "dose_low", "spec_anchor")
+DOSE_BANDS = {"dose_mid": (16, 32), "dose_hi": (32, 96),
+              # the v8 low-band term: the deficit starts ~k=7, not 16
+              "dose_lowmid": (7, 16),
+              # the v9 large-scale anchor, [1,7) so the four bands tile [1,96) with no gap.
+              # Its target column is each sample's OWN recon low-band energy (fine-band scale
+              # must NOT touch large-scale targets), and its deadband is tight: the leak it
+              # guards against is a few percent.
+              "dose_low": (1, 7)}
+DOSE_LOW_DEADBAND = 0.05
+
+
+def make_scaled_spec_anchor(stats, band=(1, 96), n=N):
+    """d(x, scale) -> (B,): the v8 dial's ANCHOR as a reward — mean squared log-distance of the
+    full spectrum over `band` to the ensemble reference shifted to each sample's own level
+    (log s_j additive shift). Ungated, like the dial's anchor; weight it lightly (v8 uses 0.5).
+    Takes the scale at CALL time, unlike make_spectrum_distance's baked-in per_sample_scale,
+    because reward batches are shuffled draws from the pool."""
+    from src.rewards import make_spectrum_fn as _msf
+    _sf = _msf(n)
+    lo, hi = band
+    log_ref = stats.get("log_spec_ref")
+    lref = jnp.asarray((log_ref if log_ref is not None
+                        else np.log(np.asarray(stats["spec_ref"]) + 1e-20))[lo:hi], jnp.float32)
+    floor = jnp.exp(lref) * 1e-6
+
+    def d(x, scale):
+        ls = jnp.log(jnp.asarray(scale, jnp.float32))[:, None]
+        e = jnp.maximum(_sf(x)[..., lo:hi], floor * jnp.exp(ls))
+        return jnp.mean((jnp.log(e) - (lref[None, :] + ls)) ** 2, axis=-1)
+
+    return jax.jit(d)
 
 
 def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
@@ -146,8 +177,11 @@ def build_components(stats, re, names=COMPONENT_NAMES, residual_ref=None, n=N,
     fns = {}
     for nm in names:
         if nm in DOSE_BANDS:
-            fns[nm] = make_band_dose_distance(stats["spec_ref"], DOSE_BANDS[nm], dose_deadband,
+            db = DOSE_LOW_DEADBAND if nm == "dose_low" else dose_deadband
+            fns[nm] = make_band_dose_distance(stats["spec_ref"], DOSE_BANDS[nm], db,
                                               n=n, log_ref=stats.get("log_spec_ref"))
+        elif nm == "spec_anchor":
+            fns[nm] = make_scaled_spec_anchor(stats, n=n)
         elif nm == "spec_highk":
             fns[nm] = component_spectrum_highk(stats, highk_band=highk_band, taper=highk_taper)
         elif nm == "spec" and highk_taper:
@@ -204,11 +238,20 @@ class Reward:
         """scale: (B,) per-sample conditional factor, required iff a SCALED_COMPONENTS term is
         active. Ignored by every other component, so scale=None reproduces the plain reward."""
         components = {}
+        if scale is not None:
+            scale = jnp.asarray(scale, jnp.float32)
         for k, f in self.component_fns.items():
             if k in SCALED_COMPONENTS:
                 if scale is None:
                     raise ValueError(f"component '{k}' needs a per-sample scale; none was passed")
-                components[k] = f(x0, scale)
+                if k == "dose_low":
+                    # dose_low rides column 1 of a (B, 2) scale: obs_low_i / ref_low, so
+                    # ref * scale reproduces each sample's own recon low-band energy exactly
+                    if scale.ndim != 2:
+                        raise ValueError("dose_low needs a (B, 2) scale (col 1 = low-band)")
+                    components[k] = f(x0, scale[:, 1])
+                else:
+                    components[k] = f(x0, scale[:, 0] if scale.ndim == 2 else scale)
             else:
                 components[k] = f(x0)
         r = -sum(self.weights.get(k, 0.0) * components[k] / self.scales.get(k, 1.0)

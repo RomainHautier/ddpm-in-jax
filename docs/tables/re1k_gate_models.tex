@@ -1,0 +1,19 @@
+\begin{table}[H]
+  \centering
+  \caption{Base and finetuned models at $Re{=}1000$, with and without the per-band per-sample gated guidance. Per-band energy retention $E_{\mathrm{band}}/E_{\mathrm{GT,band}}$, then per-sample statistics, residual ratio to ground truth and MSE. In-band is the share of triplets whose fine band dose lands within $\pm20\%$ of their own truth, and slope is $\mathrm{d}\log E/\mathrm{d}\log E_{\mathrm{GT}}$ per triplet over $k\geq16$. The pure-gate finetune is trained on the per-sample conditional reward itself.}
+  \label{tab:re1k-gate-models}
+  \begin{tabular}{lrrrrrrrrr}
+    \toprule
+    configuration & $[1,5)$ & $[5,16)$ & $[16,32)$ & $[32,64)$ & $[64,96)$ & in-band & slope & resid./GT & MSE \\
+    \midrule
+    base & 0.988 & 0.943 & 0.708 & 0.466 & 0.354 & 0\% & 0.98 & 0.63 & 0.40 \\
+    base $+$ gate & 0.989 & 0.955 & 0.929 & 0.962 & 1.008 & 94\% & 1.00 & 1.02 & 0.42 \\
+    \midrule
+    ft & 0.953 & 0.949 & 0.860 & 0.987 & 1.217 & 72\% & 0.78 & 0.73 & 0.44 \\
+    ft $+$ gate & 0.953 & 0.954 & 0.976 & 1.078 & 1.013 & 82\% & 1.00 & 0.74 & 0.46 \\
+    \midrule
+    pure-gate ft & 0.956 & 0.942 & 0.840 & 0.907 & 0.692 & 82\% & 0.91 & 0.72 & 0.44 \\
+    pure-gate ft $+$ gate & 0.955 & 0.950 & 0.966 & 1.088 & 1.004 & 83\% & 1.03 & 0.81 & 0.47 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

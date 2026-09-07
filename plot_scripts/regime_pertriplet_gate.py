@@ -19,22 +19,16 @@ CONFIG = dict(regimes=[1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000],
 PRESETS = {
     # every model, unguided (solid marker) and with the TAPERED dial at lambda=3 (open marker),
     # the same dial for every model. Colours come from style.MODEL_COLOR.
-    'allmodels': [('base0', 'mop0.2_0', 'base', style.MODEL_COLOR['base0'], 'o'),
-                  ('base0', 'mop0.2_3', 'base + dial', style.MODEL_COLOR['base0'], 'o'),
-                  ('mt1k-0499', 'mop0.2_0', 'Re=1000 ft', style.MODEL_COLOR['mt1k-0499'], 's'),
-                  ('mt1k-0499', 'mop0.2_3', 'Re=1000 ft + dial', style.MODEL_COLOR['mt1k-0499'], 's'),
-                  ('mt2k-0599', 'mop0.2_0', 'Re=2000 ft', style.MODEL_COLOR['mt2k-0599'], '^'),
-                  ('mt2k-0599', 'tapp0.2_3', 'Re=2000 ft + dial', style.MODEL_COLOR['mt2k-0599'], '^'),
-                  ('r8kp02-0599', 'mop0.2_0', 'Re=8000 ft', style.MODEL_COLOR['r8kp02-0599'], 'D'),
-                  ('r8kp02-0599', 'tapp0.2_3', 'Re=8000 ft + dial', style.MODEL_COLOR['r8kp02-0599'], 'D')],
-    'gate': [('base0', 'mop0.2_0', 'base, unguided', '#9aa198', 'o'),
-             ('base0', 'v7bandgate', 'base + gated dial', '#0f9e78', '^'),
-             ('mt1k-0499', 'v7bandgate', 'fine-tune + gated dial', '#28658a', 's')],
-    # colour = model, filled/open marker = dialled/unguided, as in the other Re=1000 figures
-    'matched': [('base0', 'mop0.2_0', 'base, unguided', '#7fb0cc', 'o'),
-                ('base0', 'tapp0.2_3', 'base + dial', '#28658a', '^'),
-                ('mt1k-0499', 'mop0.2_0', 'fine-tune, unguided', '#e08a9c', 's'),
-                ('mt1k-0499', 'tapp0.2_3', 'fine-tune + dial', '#c22f4f', 'v')],
+    'allmodels': [('base0', 'mop0.2_0', 'base', style.MODEL_COLOR['base0'], 'o', None),
+                  ('base0', 'tapp0.2_3', 'base + dial', style.MODEL_COLOR['base0'], 'o', None),
+                  ('mt1k-0499', 'mop0.2_0', 'Re=1000 ft', style.MODEL_COLOR['mt1k-0499'], 's', None),
+                  ('mt1k-0499', 'tapp0.2_3', 'Re=1000 ft + dial', style.MODEL_COLOR['mt1k-0499'], 's', None),
+                  ('mt2k-0599', 'mop0.2_0', 'Re=2000 ft', style.MODEL_COLOR['mt2k-0599'], '^', 2000),
+                  ('mt2k-0599', 'tapp0.2_3', 'Re=2000 ft + dial', style.MODEL_COLOR['mt2k-0599'], '^', 2000),
+                  ('r4kp02-0599', 'mop0.2_0', 'Re=4000 ft', style.MODEL_COLOR['r4kp02-0599'], 'v', 4000),
+                  ('r4kp02-0599', 'tapp0.2_3', 'Re=4000 ft + dial', style.MODEL_COLOR['r4kp02-0599'], 'v', 4000),
+                  ('r8kp02-0599', 'mop0.2_0', 'Re=8000 ft', style.MODEL_COLOR['r8kp02-0599'], 'D', 8000),
+                  ('r8kp02-0599', 'tapp0.2_3', 'Re=8000 ft + dial', style.MODEL_COLOR['r8kp02-0599'], 'D', 8000)],
 }
 EDGES = [1, 5, 16, 32, 64, 96]
 
@@ -52,6 +46,7 @@ def make(c, curves, cols, band):
     if len(regs) == 1: c = {**c, 'panel_w': 6.4, 'panel_h': 5.6}
     fig, axes = plt.subplots(nrow, ncol, figsize=(c['panel_w'] * ncol, c['panel_h'] * nrow),
                              constrained_layout=True, squeeze=False)
+    curves = [(r + (None,))[:6] for r in curves]
     for i, R in enumerate(regs):
         ax = axes[i // ncol][i % ncol]
         S = store(R); F = set(S.files)
@@ -69,7 +64,10 @@ def make(c, curves, cols, band):
                         color='k', alpha=.07, lw=0)
         ax.plot([lo, hi], [lo, hi], color=style.GT_COLOR, lw=1.8, zorder=5)
         stats = []
-        for m, sg, lab, col, mk in curves:
+        for m, sg, lab, col, mk, home in curves:
+            # a specialist appears only in ITS OWN regime's panel: cross-regime transfer of the
+            # specialists is the next section's subject, not this figure's
+            if home is not None and home != R: continue
             k = f'{R}|{m}|K3|{sg}||psEb'
             if k not in F: continue
             P = np.asarray(S[k])[:, cols].sum(1)

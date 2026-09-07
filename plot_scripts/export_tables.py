@@ -280,6 +280,7 @@ tex('mse_resid_upward',
 # in-regime rows for the models trained at 2000 / 8000
 rows = []
 for m, R, lab in (('mt2k-0599', 2000, 'Re=2000 fine-tune'),
+                  ('r4kp02-0599', 4000, 'Re=4000 fine-tune'),
                   ('r8kp02-0599', 8000, 'Re=8000 fine-tune')):
     d = next((t for t in ('tapp0.2_3', 'mop0.2_3') if _g(R, m, t, 'mse') is not None), None)
     rows.append([lab, str(R), f"{_g(R, m, 'mop0.2_0', 'mse'):.2f}",
@@ -321,3 +322,151 @@ tex('specialist_transfer',
     'the model undershoots by a near-constant factor, downward it overshoots.',
     'tab:specialist-transfer',
     ['$\\mathrm{Re}$'] + [c for _, l in SPEC for c in (f'{l}', 'in-b.', '$+$dial', 'in-b.')], rows)
+
+# ---------------- 11. MSE + NS residual, Re=2000 and Re=8000 in ONE table ----------------
+def _v(R, m, sg, f):
+    S = np.load(f'base_results/regime_audit_re{R}.npz', allow_pickle=True)
+    k = f'{R}|{m}|K3|{sg}||{f}'
+    return float(S[k]) if k in S.files else None
+
+
+CFG11 = [('base0', 'mop0.2_0', 'base'),
+         ('base0', 'tapp0.2_3', 'base $+$ dial'),
+         ('mt1k-0499', 'mop0.2_0', '$Re{=}1000$ finetune'),
+         ('mt1k-0499', 'tapp0.2_3', '$Re{=}1000$ finetune $+$ dial'),
+         ('@home', 'mop0.2_0', 'in-regime finetune'),
+         ('@home', 'tapp0.2_3', 'in-regime finetune $+$ dial')]
+HOME11 = {2000: 'mt2k-0599', 8000: 'r8kp02-0599'}
+rows = []
+for m0, sg, lab in CFG11:
+    r = [lab]
+    for R in (2000, 8000):
+        m = HOME11[R] if m0 == '@home' else m0
+        mse, rr = _v(R, m, sg, 'mse'), _v(R, m, sg, 'resid_ratio')
+        r += ([f'{mse:.2f}', f'{rr:.2f}'] if mse is not None else ['--', '--'])
+    rows.append(r)
+tex('mse_resid_2k8k',
+    "Reconstruction MSE and NS residual (relative to that regime's ground truth) at $Re=2000$ "
+    'and $Re=8000$. The in-regime finetune is the model trained at that regime '
+    '($Re{=}2000$ and the repaired $Re{=}8000$ run respectively); the dial is the tapered '
+    'guidance at $\\lambda=3$. A residual below $1$ means the reconstruction is smoother than '
+    'the true flow.',
+    'tab:mse-resid-2k8k',
+    ['configuration', '$Re{=}2000$ MSE', 'resid.', '$Re{=}8000$ MSE', 'resid.'], rows)
+
+# ---------------- 12. the full specialist transfer grid: three mechanisms per model ----------------
+def _gv12(R, m, ck, sg):
+    p_ = 'base_results/re1000_audit.npz' if R == 1000 else f'base_results/regime_audit_re{R}.npz'
+    if not os.path.exists(p_): return None
+    S = np.load(p_, allow_pickle=True); F = set(S.files)
+    k = f'{R}|{m}|{ck}|{sg}||ret'
+    if k not in F: return None
+    for ff in ('pst_ret', 'ps_ret_paired'):
+        kk = f'{R}|{m}|{ck}|{sg}||{ff}'
+        if kk in F:
+            return float(S[k]), float(np.mean(np.abs(np.asarray(S[kk]) - 1) < .2)) * 100
+    return None
+
+
+M12 = [('mt1k-0499', '$Re{=}1000$'), ('mt2k-0599', '$Re{=}2000$'),
+       ('r4kp02-0599', '$Re{=}4000$'), ('r8kp02-0599', '$Re{=}8000$')]
+# narrow layout: one row per (regime, model), mechanisms across - fits \textwidth
+rows = []
+for R in REGS:
+    for j, (m, lab) in enumerate(M12):
+        r = [('\\multirow{%d}{*}{%d}' % (len(M12), R)) if j == 0 else '', lab]
+        for sg in ('mop0.2_0', 'tapp0.2_3', 'v7bandgate'):
+            v = _gv12(R, m, 'K3', sg)
+            r += (['--', '--'] if v is None else [f'{v[0]:.2f}', f'{v[1]:.0f}\\%'])
+        rows.append(r)
+    rows.append(['\\midrule'] + [''] * 7)
+if rows and rows[-1][0] == '\\midrule': rows.pop()
+tex('specialist_transfer_full',
+    'Every specialist at every regime under three mechanisms, as retention over $[32,96)$ with '
+    'the share of triplets within $\\pm20\\%$ of their own truth in parentheses. The dial is the '
+    'tapered guidance at $\\lambda=3$; the gate steers each sample toward its own predicted '
+    'level. For the $Re{=}8000$ model carried below its regime, the chain-shortened sampler '
+    'replaces guidance: a single $[100]$ chain at $Re{=}1000$ reaches $1.04$ ($70\\%$) unguided '
+    'on the test pool.',
+    'tab:specialist-transfer-full',
+    ['$\\mathrm{Re}$', 'finetune', 'ung.', 'in-b.', '$+$dial', 'in-b.', '$+$gate', 'in-b.'],
+    rows, note='Requires \\texttt{multirow}.')
+
+# ---------------- 13. the Re=8000 finetune carried downward ----------------
+CHAIN13 = {1000: ('K100', '[100]', 'cc'), 1500: ('K120', '[120]', 'clt'),
+           2000: ('K125', '[125]', 'clt'), 3000: ('K150', '[150]', 'clt'),
+           4000: ('K160', '[160]', 'clt')}
+rows = []
+for R in REGS:
+    r = [str(R)]
+    for ck, sg in (('K3', 'mop0.2_0'), ('K3', 'tapp0.2_3'), ('K3', 'v7bandgate')):
+        v = _gv12(R, 'r8kp02-0599', ck, sg)
+        r += (['--', '--'] if v is None else [f'{v[0]:.2f}', f'{v[1]:.0f}\\%'])
+    if R in CHAIN13:
+        v = _gv12(R, 'r8kp02-0599', CHAIN13[R][0], f'{CHAIN13[R][2]}p0.2_0')
+        r += ([CHAIN13[R][1], '--', '--'] if v is None
+              else [CHAIN13[R][1], f'{v[0]:.2f}', f'{v[1]:.0f}\\%'])
+    else:
+        r += ['--', '--', '--']
+    rows.append(r)
+tex('re8k_downward',
+    'The $Re{=}8000$ finetune carried down the regime ladder: retention over $[32,96)$ and the '
+    'share of triplets within $\\pm20\\%$ of their own truth, under the standard K3 chain '
+    '(unguided, tapered dial at $\\lambda=3$, and the target-gated dial), and with the '
+    'chain-shortened sampler, unguided, where a rung has been evaluated on the test pool. '
+    'Each chain is selected per regime on the validation pool before the single test '
+    'evaluation. Guidance cannot remove the overshoot far below the home regime; shortening '
+    'the chain can.',
+    'tab:re8k-downward',
+    ['$\\mathrm{Re}$', 'K3 ung.', 'in-b.', 'K3 $+$dial', 'in-b.', 'K3 $+$gate', 'in-b.',
+     'chain', 'ret', 'in-b.'], rows)
+
+
+# ---------------- 14. the two high-regime specialists at Re<=4000, unguided and dialed ----------------
+M14 = [('r4kp02-0599', '$Re{=}4000$ ft'), ('r8kp02-0599', '$Re{=}8000$ ft')]
+rows = []
+for R in (1000, 1500, 2000, 3000, 4000):
+    r = [str(R)]
+    for m, _ in M14:
+        for sg in ('mop0.2_0', 'tapp0.2_3'):
+            v = _gv12(R, m, 'K3', sg)
+            r += (['--', '--'] if v is None else [f'{v[0]:.2f}', f'{v[1]:.0f}\\%'])
+    rows.append(r)
+tex('downward_4k8k',
+    'The $Re{=}4000$ and $Re{=}8000$ fine-tunes on the lower half of the ladder under the '
+    'standard K3 chain, unguided and with the tapered dial at $\\lambda=3$, as retention over '
+    '$[32,96)$ with the share of triplets within $\\pm20\\%$ of their own truth. The overshoot '
+    'grows with the distance below the training regime and the dial reduces it by roughly '
+    'half without landing it, for both models.',
+    'tab:downward-4k8k',
+    ['$\\mathrm{Re}$', '4k ung.', 'in-b.', '4k $+$dial', 'in-b.',
+     '8k ung.', 'in-b.', '8k $+$dial', 'in-b.'], rows)
+
+
+# ---------------- 15. where the downward overshoot lives in k ----------------
+def _onset(R, m):
+    p_ = 'base_results/re1000_audit.npz' if R == 1000 else f'base_results/regime_audit_re{R}.npz'
+    S = np.load(p_, allow_pickle=True)
+    E = np.asarray(S[f'{R}|{m}|K3|mop0.2_0||E']); Eg = np.asarray(S[f'{R}|GT||E'])
+    r = E[1:120] / Eg[1:120]; k = np.arange(1, 120)
+    up = next((kk for i, kk in enumerate(k[:-6]) if r[i] > 1 and np.all(r[i:i+6] > 1)), None)
+    ipk = int(np.argmax(r)); back = k[ipk:][np.argmax(r[ipk:] < 1)] if np.any(r[ipk:] < 1) else None
+    lowk = float(S[f'{R}|{m}|K3|mop0.2_0||lowk'])
+    return lowk, up, r[ipk], k[ipk], back
+
+
+rows = []
+for R in (1000, 2000, 4000):
+    for j, (m, lab) in enumerate((('r4kp02-0599', '$Re{=}4000$ ft'),
+                                  ('r8kp02-0599', '$Re{=}8000$ ft'))):
+        lowk, up, pk, kpk, back = _onset(R, m)
+        rows.append([str(R) if j == 0 else '', lab, f'{lowk:.2f}', f'{up}',
+                     f'{pk:.1f}$\\times$ at {kpk}', f'{back}' if back is not None else 'never'])
+tex('overshoot_onset',
+    'Where the downward surplus lives in wavenumber. Low-$k$ is retention over $[1,5)$; onset '
+    'is the first shell whose energy exceeds the truth and stays above it; the last column is '
+    'where the ratio returns under $1$. The large scales are preserved within a few percent '
+    'everywhere while the surplus onset retreats toward higher $k$ as the target approaches '
+    'the training regime.',
+    'tab:overshoot-onset',
+    ['$\\mathrm{Re}$', 'model', 'low-$k$', 'onset $k$', 'peak', 'under $1$ at'], rows)

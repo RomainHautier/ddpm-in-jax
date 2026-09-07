@@ -22,6 +22,7 @@ CONFIG = dict(re=2000, idx=None, panel=2.9, fontsize=style.BASE_FS, dpi=170,
 # a transfer question into a figure about local training. The Re=8000 slot uses the REPAIRED run
 # (pde weight 0.2); the matched mt8k drains the large scales and is not a usable model.
 HOME = {2000: ('mt2k-0599', 'Re=2000 fine-tune\n(trained here)'),
+        4000: ('r4kp02-0599', 'Re=4000 fine-tune\n(trained here)'),
         8000: ('r8kp02-0599', 'Re=8000 fine-tune\n(trained here, repaired)')}
 
 
@@ -76,18 +77,43 @@ def make(c):
         E = np.asarray(make_spectrum_fn(256)(jnp.asarray(gt)))[:, 32:96].sum(1)
         i = int(np.argsort(E)[len(E) // 2])
     panels = ([('ground truth', gt)] if c['show_gt'] else []) + fields
-    n = len(panels)
-    fig, ax = plt.subplots(1, n, figsize=(c['panel'] * n, c['panel'] * 1.16),
-                           constrained_layout=True)
+    n_p = len(panels)
+    sys.path.insert(0, 'src/ddpo_ft')
+    from viz_energy import local_hik_energy
+    fig, axes = plt.subplots(2, n_p, figsize=(c['panel'] * n_p, c['panel'] * 2.18),
+                             constrained_layout=True)
     w_gt = gt[i, ..., 1] * SIG
     v = float(np.percentile(np.abs(w_gt), 99.5))
-    for a, (lab, f) in zip(np.atleast_1d(ax), panels):
+    # row 1: the vorticity fields, shared scale from the ground truth
+    for a, (lab, f) in zip(axes[0], panels):
         a.imshow(f[i, ..., 1] * SIG, cmap='RdBu_r', vmin=-v, vmax=v, interpolation='nearest')
         a.set_title(lab, fontsize=style.TITLE_FS)
         a.set_xticks([]); a.set_yticks([])
-        for sp in a.spines.values(): sp.set_visible(True)
+    # row 2: the LOCAL fine-scale (k>=32, sigma=6) energy deficit each model leaves. First panel
+    # shows where the ground truth keeps its fine-scale energy; the rest show GT minus model on a
+    # shared diverging scale, red = energy the model failed to put there, blue = surplus.
+    Eg = local_hik_energy(w_gt, 32, 6.0)
+    defs = [Eg - local_hik_energy(f[i, ..., 1] * SIG, 32, 6.0) for _, f in panels[1:]]
+    dv = float(np.percentile(np.abs(np.stack(defs)), 99.0))
+    im0 = axes[1, 0].imshow(Eg, cmap='magma', vmin=0, vmax=float(np.percentile(Eg, 99.5)),
+                            interpolation='nearest')
+    axes[1, 0].set_title('GT fine-scale energy ($k\\geq32$)', fontsize=style.LEG_FS + 1)
+    imd = None
+    for a, d in zip(axes[1, 1:], defs):
+        imd = a.imshow(d, cmap='RdBu_r', vmin=-dv, vmax=dv, interpolation='nearest')
+        a.set_title('deficit  GT $-$ model', fontsize=style.LEG_FS + 1)
+    for a in axes[1]: a.set_xticks([]); a.set_yticks([])
+    cb = fig.colorbar(imd, ax=axes[1, 1:], shrink=0.82, pad=0.01)
+    cb.set_label('local energy deficit', fontsize=style.LEG_FS)
+    cb0 = fig.colorbar(im0, ax=axes[1, 0], shrink=0.82, pad=0.02)
+    cb0.ax.tick_params(labelsize=style.LEG_FS - 2)
+    frac = [float(np.mean(d > 0) * 100) for d in defs]
+    for a, fr in zip(axes[1, 1:], frac):
+        a.text(0.02, 0.02, f'{fr:.0f}% of pixels short', transform=a.transAxes, ha='left',
+               va='bottom', fontsize=style.LEG_FS - 1,
+               bbox=dict(fc='white', ec='none', alpha=.75, pad=1.5))
     fig.suptitle(f'The same reconstruction at Re={R} (triplet {i}, middle frame), '
-                 'every model unguided', fontsize=style.SUP_FS)
+                 'every model unguided; below, where the fine-scale deficit sits', fontsize=style.SUP_FS)
     name = f'sample_row_re{R}'
     for d, ext in ((c['outdir'], 'pdf'), (c['pngdir'], 'png')):
         os.makedirs(d, exist_ok=True)

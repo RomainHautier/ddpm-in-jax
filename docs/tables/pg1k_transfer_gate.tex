@@ -1,0 +1,28 @@
+\begin{table}[H]
+  \centering
+  \caption{Upward transfer of the gate-reward $Re{=}1000$ finetune (pg1k) against the plain base model, both steered by the same per-band per-sample gated guidance, on the canonical test pools, with the gate-reward regime specialists (pg4k, pg8k) at and above their home regimes with and without the guidance. In-band is the share of triplets whose fine band dose lands within $\pm20\%$ of their own truth, and slope is $\mathrm{d}\log E/\mathrm{d}\log E_{\mathrm{GT}}$ per triplet over the fine band. The transferred models track their samples equally well through near identical slopes; the finetune's advantage is the level, and the specialists close the remaining gap at their homes and one rung above.}
+  \label{tab:pg1k-transfer-gate}
+  \begin{tabular}{llrrrrr}
+    \toprule
+    $\mathrm{Re}$ & configuration & ret. & resid./GT & MSE & in-band & slope \\
+    \midrule
+    2000 & base $+$ gate & 0.860 & 0.41 & 0.72 & 81\% & 0.90 \\
+         & pg1k $+$ gate & 0.919 & 0.24 & 0.77 & 96\% & 0.88 \\
+    \midrule
+    4000 & base $+$ gate & 0.827 & 0.23 & 1.21 & 74\% & 0.84 \\
+         & pg1k $+$ gate & 0.875 & 0.15 & 1.28 & 89\% & 0.87 \\
+         & pg4k & 1.021 & 0.17 & 1.28 & 72\% & 0.50 \\
+         & pg4k $+$ gate & 1.113 & 0.21 & 1.35 & 74\% & 0.80 \\
+    \midrule
+    6000 & base $+$ gate & 0.741 & 0.18 & 1.48 & 20\% & 0.81 \\
+         & pg1k $+$ gate & 0.786 & 0.12 & 1.56 & 42\% & 0.82 \\
+         & pg4k $+$ gate & 0.986 & 0.15 & 1.61 & 95\% & 0.73 \\
+    \midrule
+    8000 & base $+$ gate & 0.697 & 0.12 & 1.75 & 8\% & 0.82 \\
+         & pg1k $+$ gate & 0.735 & 0.08 & 1.83 & 22\% & 0.83 \\
+         & pg4k $+$ gate & 0.907 & 0.10 & 1.89 & 95\% & 0.81 \\
+         & pg8k & 1.005 & 0.07 & 2.00 & 82\% & 0.51 \\
+         & pg8k $+$ gate & 1.016 & 0.09 & 2.02 & 94\% & 0.78 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

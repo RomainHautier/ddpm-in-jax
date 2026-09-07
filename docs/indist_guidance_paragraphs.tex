@@ -1,0 +1,44 @@
+% Guidance and fine-tune paragraphs, gaps filled from the Re=1000 audit store and
+% factual corrections applied. Key numbers: base bands [1,5)..[64,96) =
+% 0.99/0.94/0.71/0.47/0.35; base+dial = 0.98/0.95/0.81/0.89/1.01; ft =
+% 0.95/0.95/0.86/0.99/1.22; ft+dial = 0.94/0.95/0.92/1.06/1.01. MSE base 0.40,
+% ft 0.44. Residual ratios: base 0.63, base+dial 0.42, ft 0.73, ft+dial 0.37.
+% Corrected claim: the dial on the fine-tune does NOT improve low-k retention.
+
+We first apply inference-time sampling guidance to the base model's denoising
+trajectories. In Figure \ref{fig:spectrum-re1000} the energy spectrum curve of this
+setup hides behind that of the ground truth for close to the entire range, while Figure
+\ref{fig:spectrum-ratio-re1k} paints a slightly different picture. Table
+\ref{tab:re-1k-ft-base} details that guidance raises the average energy content carried
+by SR samples by $\approx10$, $40$ and $65$ percentage points over the base model across
+the $k\in[16,32)$, $[32,64)$ and $[64,96)$ bands, recovering $80$ to $100\%$ of the
+fine-scale energy carried over $k\in[16,96)$ by the ground truth samples. We note that
+injecting fine-scale energy in this manner comes at two costs. First, it takes away
+$1\%$ of the low-$k$ energy present in the $k\in[1,5)$ band, with a $9\%$ deficit at the
+very largest scale $k=1$. Secondly, the guidance does not close the gap evenly across
+the wavenumber range. The current formulation of the reward function pushes sampling
+guidance to energise structures belonging to the $k\in[10,96)$ band evenly. Figure
+\ref{fig:spectrum-ratio-re1k} shows the reward taking effect at $k=10$, where the
+base$+$dial curve departs from the base curve, but it is not able to fully address the
+mid-$k$ energy deficit, although it closes most of the high-$k$ energy gap over
+$k\in[64,96)$.\newline
+
+On the other hand, the finetuned model starts injecting energy as low as $k=7$ in its SR
+samples, even though the reward formulation pushes over $k\in[10,96)$ specifically. It
+registers retention levels as high as $86\%$ and $98.7\%$ over $k\in[16,32)$ and
+$k\in[32,64)$, outperforming the base$+$dial generations under the same reward function.
+It then over-energises structures with wavenumbers $k\in[41,113)$, peaking at
+$1.24\times$ near $k=69$, before falling back under $\nicefrac{E(k)}{E_{GT}(k)}=1$ at
+the end of the range. We note that it loses $5\%$ of the low-$k$ energy contained in the
+large-scale structures of the flow, in exchange for the high-$k$ energy gains. Adding
+the guidance on top of the finetuned model corrects the high-$k$ overshoot, bringing the
+$[64,96)$ retention from $1.22$ back to $1.01$, and lifts the $[16,32)$ band further to
+$0.92$, at the cost of pushing $[32,64)$ past the truth to $1.06$ and shaving another
+percent off the low-$k$ energy, as seen in Table \ref{tab:re-1k-ft-base}. The plain
+finetuned model achieves a $10\%$ worse MSE than the base model, but raises the mean
+residual to $r_{x_0}=0.73\times r_{GT}$. The SR generations are slightly rougher, hence
+more similar to the ground truth frames. We note that DDPO finetuning pushes samples
+closer to the ground truth frames both in terms of energy and PDE residual, while
+guidance only moves the energy content in the right direction despite being steered
+towards the same objective, smoothing the residual further to $0.42\times r_{GT}$ on the
+base model.\newline

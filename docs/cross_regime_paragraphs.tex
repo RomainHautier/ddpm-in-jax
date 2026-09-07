@@ -1,0 +1,80 @@
+% Corrected version of the "origin of the energy surplus" block. Changes relative to
+% your draft: typos (suppress, magnitude, energy, principal), grammar (tells, the more
+% opportunities), the trace figure swapped to the eta=1 real sampler version so the
+% Re=2000 overshoot claim holds, the embedding regimes corrected to the four basis
+% regimes, PC1 variance filled in at 96 percent, the numbered markers described as the
+% first clean estimate of each chain rather than its end, and the subfigure captions
+% filled. Sentence structure kept as close to yours as the fixes allow.
+
+\paragraph{Uncovering the origin of this energy surplus at inference time} In order to
+suppress the fine-scale energy surplus provided by turbulence-promoting models, we need
+to understand the inference time mechanisms promoting the injection of these
+turbulences. Figure \ref{fig:chain-energy-trace-K3} depicts how models tuned in
+different regimes control the amount of $k\in[32,96)$ band energy they inject into
+their respective generations through the three successive denoising chains they follow,
+given the same sample from the $Re=1000$ pool and the production sampler. The magnitude
+of the fine-scale energy levels after the first denoising step tells us that the more
+turbulent the model's home regime is, the more fine-scale energy it injects by
+leveraging larger magnitude noise predictions $\epsilon_\theta$. All models follow the
+same energy injection pattern, raising the energy content of the sample at first,
+before flattening and slightly reversing as the chain refines towards a clean sample.
+After the first denoising step, the $Re=4000$ and $Re=8000$ finetunes already overshoot
+the ground truth fine-scale content of the sample, while the $Re=2000$ falls just short
+of it at the end of its first chain and the $Re=1000$ finetune remains farther
+below.\newline
+The re-noising events of the frozen inference configuration then allow each model to
+inject further fine-scale energy into the flow, pushing the $Re=2000$ model past the
+truth over the remaining chains. Importantly, we note that the larger the noising
+increment $t$, the larger the magnitude of the fine-scale energy injection is.
+Equally, the more re-noising events there are, the more opportunities the model has to
+push the reconstruction towards the energy levels of its home regime.\newline
+
+To support this hypothesis we embed per sample log energy spectra of the regimes
+$Re\in\{1000, 2000, 4000, 8000\}$ in a compact space using principal component
+analysis. The first principal component explains $96\%$ of the variance in the dataset
+and roughly aligns with the flow regime. In Figure \ref{fig:cross-manifold-K3}, we
+project the trajectories of the models tested onto this manifold, marking the first
+clean estimate of each denoising chain and the final reconstruction. First, we note
+that the base model, which is unable to inject fine-scale energy in the flow, generates
+samples which stand close together and near the DDIM recon over the manifold. The
+$Re=2000$ model reaches the $Re=1000$ cloud within its first chain while closely
+matching its fine-scale energy. By the opening of its second chain, its generation has
+traveled in the positive direction of PC1, closer to where $Re=2000$ samples lie on the
+data manifold. The $Re=1000$ finetune first generates a sample close to the base
+reconstruction, before drifting along PC1 as more fine-scale energy is injected into
+it. The $Re=4000$ and $Re=8000$ finetunes over-dose fine-scale energy upon their first
+chain, and drift farther along the PC1 axis, each getting closer to where its home
+regime samples lie over the manifold. This figure illustrates how specialist models
+force the generated samples to drift towards their home regime over the data manifold,
+and the jump between the end of one chain and the opening of the next is the injection
+itself. Similarly to the observation made over Figure \ref{fig:chain-energy-trace-K3},
+the larger the $t$, the farther the clean sample can travel from its previous clean
+realisation.\newline
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Figures/Cross-regime/chain_energy_trace_eta1.pdf}
+        \caption{Fine band energy of the running clean estimate through the three
+        chains, real sampler, identical noise across models.}
+        \label{fig:chain-energy-trace-K3}
+    \end{subfigure}
+    \\[1ex]
+    \begin{subfigure}[b]{\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Figures/Cross-regime/offmanifold_topview_re1000.pdf}
+        \caption{The same chains on the spectral manifold, target $Re=1000$. Numbered
+        dots mark the first clean estimate of each chain, diamonds the final
+        reconstruction.}
+        \label{fig:cross-manifold-K3}
+    \end{subfigure}
+    \caption{The injection of fine scale energy through the frozen K3 configuration,
+    seen through the band energy of the clean estimate and through the corresponding
+    movement over the data manifold.}
+    \label{fig:cross-manifold-move}
+\end{figure}
+
+We then leverage different test time inference configurations to promote downward
+transfer of more energetic models, and observe the repercussions over the energy
+spectrum and the trajectories over the data manifold.

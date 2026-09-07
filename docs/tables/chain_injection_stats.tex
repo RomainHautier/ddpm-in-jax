@@ -1,0 +1,16 @@
+\begin{table}[t]
+  \centering
+  \caption{Fine-band energy $E_{[32,96)}$ multipliers through the K3 chain at $Re{=}1000$, one sample, identical noise across models. Step 1 is the first clean estimate relative to the reconstruction the chain starts from; each drift column is the change over the remaining steps of that pass; each jump is the change across a renoising. The dose is set at the first estimate of each pass and the refinement phase is nearly flat, so total dose is a function of the model and the renoising schedule, not of the step count.}
+  \label{tab:chain-injection}
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    model & step 1 / input & rest of pass 1 & jump 2 & drift 2 & jump 3 & drift 3 \\
+    \midrule
+    base & 1.03 & 1.05 & 0.98 & 1.03 & 1.02 & 1.01 \\
+    $Re{=}1000$ ft & 1.64 & 0.92 & 1.30 & 0.90 & 1.12 & 0.94 \\
+    $Re{=}2000$ ft & 2.05 & 0.89 & 1.50 & 0.85 & 1.19 & 0.90 \\
+    $Re{=}4000$ ft & 3.01 & 0.83 & 1.86 & 0.77 & 1.27 & 0.85 \\
+    $Re{=}8000$ ft & 3.63 & 0.84 & 2.04 & 0.75 & 1.33 & 0.83 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

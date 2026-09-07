@@ -1,0 +1,27 @@
+\begin{table}[H]
+  \centering
+  \caption{Reconstruction quality of the gated dial at each regime with a home model, against the regime's own fine tune unguided, and at $Re{=}1000$ against the gated-dose fine tune whose reward carries the per sample gate in the weights. The gate at $Re{=}1000$ includes the low band interval $[k_{\mathrm{low}},16)$; metrics as in the surrounding tables.}
+  \label{tab:gated-quality}
+  \begin{tabular}{llrrrrr}
+    \toprule
+    $\mathrm{Re}$ & configuration & placement & MSE & resid. & in-band & slope \\
+    \midrule
+    1000 & base $+$ gate & 0.907 & 0.42 & 1.02 & 94\% & 0.91 \\
+     & in-regime ft & 0.859 & 0.44 & 0.73 & 72\% & 0.57 \\
+     & in-regime ft $+$ gate & 0.866 & 0.46 & 0.74 & 82\% & 0.93 \\
+     & gated-dose ft (weights) & 0.880 & 0.46 & 0.99 & 82\% & 0.76 \\
+    \midrule
+    2000 & base $+$ gate & 0.858 & 0.71 & 0.40 & 85\% & 0.91 \\
+     & in-regime ft & 0.820 & 0.77 & 0.30 & 94\% & 0.65 \\
+     & in-regime ft $+$ gate & 0.823 & 0.78 & 0.30 & 95\% & 0.93 \\
+    \midrule
+    4000 & base $+$ gate & 0.780 & 1.20 & 0.22 & 80\% & 0.85 \\
+     & in-regime ft & 0.734 & 1.33 & 0.19 & 74\% & 0.50 \\
+     & in-regime ft $+$ gate & 0.745 & 1.35 & 0.20 & 95\% & 0.84 \\
+    \midrule
+    8000 & base $+$ gate & 0.739 & 1.76 & 0.12 & 14\% & 0.80 \\
+     & in-regime ft & 0.703 & 1.98 & 0.09 & 74\% & 0.43 \\
+     & in-regime ft $+$ gate & 0.700 & 2.02 & 0.10 & 100\% & 0.77 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

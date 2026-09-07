@@ -40,6 +40,7 @@ MODEL_COLOR = {
     'mt2k-0599':   '#0f9e78',   # Re=2000 matched fine-tune  (green)
     'mt8k-0549':   '#d4770a',   # Re=8000 matched fine-tune  (orange, gate-failing)
     'r8kp02-0599': '#8a5cd6',   # Re=8000 repaired fine-tune (purple)
+    'r4kp02-0599': '#1ba3c6',   # Re=4000 fine-tune          (cyan)
     'gt1k-0099':   '#b8399e',   # gated-dose fine-tune       (magenta)
 }
 # regimes as a cold -> hot ramp in the same two hues the model palette is built from
@@ -70,3 +71,12 @@ def re_axis(ax, regs=(1000, 2000, 4000, 8000)):
     ax.set_xscale('log'); ax.set_xticks(list(regs))
     ax.set_xticklabels([(f'{r / 1000:g}k' if r % 1000 else f'{r // 1000}k') for r in regs])
     ax.minorticks_off()
+
+
+def vivid(c, lmax=.52, sboost=1.6):
+    """Saturated, slightly darkened variant of a hex color, so the pale middle of the
+    regime ramp can still be pushed to the foreground as a highlighted target."""
+    import colorsys
+    from matplotlib.colors import to_rgb
+    h, l, s = colorsys.rgb_to_hls(*to_rgb(c))
+    return colorsys.hls_to_rgb(h, min(l, lmax), min(1.0, max(s, .55) * sboost))
